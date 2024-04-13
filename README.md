@@ -37,12 +37,12 @@ VirtualStorages is a Bukkit plugin designed to enhance storage capabilities for 
 
 **Credits:**  
 - Developer: DaveDuart
-- Spigot Page: [852Duarte]([https://dev.bukkit.org](https://www.spigotmc.org/members/852duarte.637824/))
+- Spigot Page: [852Duarte](https://www.spigotmc.org/members/852duarte.637824/)
 
 ---
 
 **Support:**  
-For support and updates, join our Discord server [here](https://discord.gg/virtualstorages).
+For support add me on discord, username: 852Duarte.
 
 ---
 
