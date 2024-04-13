@@ -10,8 +10,7 @@ VirtualStorages is a Bukkit plugin designed to enhance storage capabilities for 
 1. **Virtual Backpacks:** Players can access additional storage space through virtual backpacks.
 2. **Permission System:** Granular permissions control who can use virtual backpacks, ensuring balanced gameplay.
 3. **Reload Command:** Admins can reload permissions on-the-fly using the `vsreload` command.
-4. **Data Persistence:** Player backpack data is saved and loaded automatically, even across server restarts.
-
+4. **Data Persistence:** Player backpack data is saved and loaded automatically, even across server restarts. The data is stored in a YAML file located inside the Data Folder of the plugin. This ensures that player inventories remain accessible across sessions and also provides easy editing of this file.
 ---
 
 **Installation:**
@@ -38,7 +37,7 @@ VirtualStorages is a Bukkit plugin designed to enhance storage capabilities for 
 
 **Credits:**  
 - Developer: DaveDuart
-- Bukkit API: [https://dev.bukkit.org/](https://dev.bukkit.org/)
+- Spigot Page: [852Duarte]([https://dev.bukkit.org](https://www.spigotmc.org/members/852duarte.637824/))
 
 ---
 
