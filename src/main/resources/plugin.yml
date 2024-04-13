@@ -1,0 +1,12 @@
+name: VirtualStorages
+version: 1.0
+main: net.duart.virtualstorage.VirtualStorages
+api-version: 1.20
+
+commands:
+  backpack:
+    description: Opens the virtual backpack inventory.
+    usage: /backpack
+  vsreload:
+    description: Reloads Virtual Storage permissions.
+    usage: /vsreload
