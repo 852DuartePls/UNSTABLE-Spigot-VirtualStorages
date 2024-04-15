@@ -1,7 +1,6 @@
 package net.duart.virtualstorage;
 
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -13,7 +12,6 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
@@ -45,17 +43,21 @@ public class VirtualBackpack implements Listener {
     private void loadBackpackFromYAML(UUID playerId, ArrayList<Inventory> pages) {
         File playerFile = new File(plugin.getDataFolder(), playerId.toString() + ".yml");
         YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
-
-        for (int i = 0; i < pages.size(); i++) {
-            Inventory page = pages.get(i);
-            for (int slot = 0; slot < page.getSize(); slot++) {
-                if (playerConfig.contains("pages." + i + ".slot" + slot)) {
-                    ItemStack item = playerConfig.getItemStack("pages." + i + ".slot" + slot);
-                    if (item != null) {
-                        page.setItem(slot, item);
+        try {
+            for (int i = 0; i < pages.size(); i++) {
+                Inventory page = pages.get(i);
+                for (int slot = 0; slot < page.getSize(); slot++) {
+                    if (playerConfig.contains("pages." + i + ".slot" + slot)) {
+                        ItemStack item = playerConfig.getItemStack("pages." + i + ".slot" + slot);
+                        if (item != null) {
+                            page.setItem(slot, item);
+                        }
                     }
                 }
             }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error loading backpack YAML for player " + playerId);
+            e.printStackTrace();
         }
     }
 
@@ -91,7 +93,6 @@ public class VirtualBackpack implements Listener {
             UUID playerId = player.getUniqueId();
             ArrayList<Inventory> pages = getBackpackPages(playerId);
             if (!pages.isEmpty()) {
-                int oldMaxPages = pages.size();
                 pages.clear();
                 int maxPages = getMaxPages(playerId);
                 for (int i = 0; i < maxPages; i++) {
@@ -196,33 +197,36 @@ public class VirtualBackpack implements Listener {
         String inventoryTitle = inventoryView.getTitle();
 
         if (inventoryTitle.contains("Backpack - Page")) {
-            if (inventoryView.getPlayer() instanceof Player) {
-                saveBackpackInventory(playerId, getBackpackPages(playerId));
-            }
+            saveBackpackInventory(playerId, getBackpackPages(playerId));
         }
     }
 
     private void saveBackpackInventory(UUID playerId, ArrayList<Inventory> pages) {
         File playerFile = new File(plugin.getDataFolder(), playerId.toString() + ".yml");
         YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
-
-        for (int i = 0; i < pages.size(); i++) {
-            Inventory page = pages.get(i);
-            for (int slot = 0; slot < page.getSize(); slot++) {
-                ItemStack item = page.getItem(slot);
-                if (item != null && isNavigationItem(item)) {
-                    playerConfig.set("pages." + i + ".slot" + slot, item);
-                } else {
-                    playerConfig.set("pages." + i + ".slot" + slot, null);
+        try {
+            for (int i = 0; i < pages.size(); i++) {
+                Inventory page = pages.get(i);
+                for (int slot = 0; slot < page.getSize(); slot++) {
+                    ItemStack item = page.getItem(slot);
+                    if (item != null && isNavigationItem(item)) {
+                        playerConfig.set("pages." + i + ".slot" + slot, item);
+                    } else {
+                        playerConfig.set("pages." + i + ".slot" + slot, null);
+                    }
                 }
             }
-        }
-
-        try {
             playerConfig.save(playerFile);
         } catch (IOException e) {
-            System.err.println("Error al guardar el archivo YAML:");
+            plugin.getLogger().warning("Error saving backpack YAML for player " + playerId);
             e.printStackTrace();
+        } finally {
+            try {
+                playerConfig.save(playerFile);
+            } catch (IOException e) {
+                plugin.getLogger().warning("Error saving backpack YAML for player " + playerId);
+                e.printStackTrace();
+            }
         }
     }
 
