@@ -36,12 +36,12 @@ public class VirtualBackpack implements Listener {
         currentPageIndexMap.put(playerId, 0);
         ArrayList<Inventory> pages = getBackpackPages(playerId);
         Inventory currentPage = pages.get(0);
-        loadBackpackFromYAML(playerId, pages);
+        loadBackpackFromYAML(player, playerId, pages);
         player.openInventory(currentPage);
     }
 
-    private void loadBackpackFromYAML(UUID playerId, ArrayList<Inventory> pages) {
-        File playerFile = new File(plugin.getDataFolder(), playerId.toString() + ".yml");
+    private void loadBackpackFromYAML(Player player ,UUID playerId, ArrayList<Inventory> pages) {
+        File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml");
         YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
         try {
             for (int i = 0; i < pages.size(); i++) {
@@ -197,12 +197,12 @@ public class VirtualBackpack implements Listener {
         String inventoryTitle = inventoryView.getTitle();
 
         if (inventoryTitle.contains("Backpack - Page")) {
-            saveBackpackInventory(playerId, getBackpackPages(playerId));
+            saveBackpackInventory(player, playerId, getBackpackPages(playerId));
         }
     }
 
-    private void saveBackpackInventory(UUID playerId, ArrayList<Inventory> pages) {
-        File playerFile = new File(plugin.getDataFolder(), playerId.toString() + ".yml");
+    private void saveBackpackInventory(Player player, UUID playerId, ArrayList<Inventory> pages) {
+        File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml");
         YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
         try {
             for (int i = 0; i < pages.size(); i++) {
@@ -243,8 +243,11 @@ public class VirtualBackpack implements Listener {
 
     public void saveAllBackpacks() {
         for (UUID playerId : backpacks.keySet()) {
-            ArrayList<Inventory> pages = backpacks.get(playerId);
-            saveBackpackInventory(playerId, pages);
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) {
+                ArrayList<Inventory> pages = backpacks.get(playerId);
+                saveBackpackInventory(player, playerId, pages);
+            }
         }
     }
 }
