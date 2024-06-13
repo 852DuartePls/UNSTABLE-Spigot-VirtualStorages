@@ -8,8 +8,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.InventoryView;
-import org.checkerframework.checker.nullness.qual.NonNull;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,7 +20,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         this.virtualBackpack = virtualBackpack;
     }
 
-    public boolean onCommand(@NonNull CommandSender sender,@NonNull Command command,@NonNull String label,@NonNull String[] args) {
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().equalsIgnoreCase("backpack")) {
             if (sender instanceof Player player) {
                 for (int i = 1; i <= 999; i++) {
@@ -46,7 +44,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                     }
                 }
                 virtualBackpack.updatePermissions();
-                sender.sendMessage(ChatColor.GREEN + "VirtualStorages permissions reloaded.");
+                sender.sendMessage(ChatColor.GREEN + "VirtualStorages permissions reloaded and backpacks updated.");
             } else {
                 sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
             }
@@ -56,7 +54,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
     }
 
     @Override
-    public List<String> onTabComplete(@NonNull CommandSender sender, @NonNull Command command, @NonNull String alias, @NonNull String[] args) {
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
         if (args.length == 1) {
             completions.add("backpack");
