@@ -13,12 +13,14 @@ import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
-
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.UUID;
+import java.util.logging.Level;
 
 public class VirtualBackpack implements Listener {
 
@@ -35,9 +37,24 @@ public class VirtualBackpack implements Listener {
         UUID playerId = player.getUniqueId();
         currentPageIndexMap.put(playerId, 0);
         ArrayList<Inventory> pages = getBackpackPages(playerId);
-        Inventory currentPage = pages.get(0);
         loadBackpackFromYAML(player, playerId, pages);
-        player.openInventory(currentPage);
+        moveItemsToNextPageIfNecessary(pages);
+        player.openInventory(pages.get(0));
+    }
+
+    private void moveItemsToNextPageIfNecessary(ArrayList<Inventory> pages) {
+        int totalPages = pages.size();
+        for (int i = 0; i < totalPages - 1; i++) {
+            Inventory currentPage = pages.get(i);
+            Inventory nextPage = pages.get(i + 1);
+            ItemStack itemToMove = currentPage.getItem(53);
+
+            if (itemToMove != null && isNavigationItem(itemToMove) && nextPage.firstEmpty() != -1) {
+                currentPage.setItem(53, null);
+                nextPage.addItem(itemToMove);
+            }
+        }
+        addNavigationItems(pages);
     }
 
     private void loadBackpackFromYAML(Player player ,UUID playerId, ArrayList<Inventory> pages) {
@@ -56,8 +73,7 @@ public class VirtualBackpack implements Listener {
                 }
             }
         } catch (Exception e) {
-            plugin.getLogger().warning("Error loading backpack YAML for player " + playerId);
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Error loading backpack YAML for player " + playerId, e);
         }
     }
 
@@ -89,27 +105,62 @@ public class VirtualBackpack implements Listener {
     }
 
     public void updatePermissions() {
+        createBackup();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            saveAllBackpacks();
+            updatePlayerInventories();
+        }, 30L);
+    }
+
+    public void updatePlayerInventories() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             UUID playerId = player.getUniqueId();
-            ArrayList<Inventory> pages = getBackpackPages(playerId);
-            if (!pages.isEmpty()) {
-                pages.clear();
-                int maxPages = getMaxPages(playerId);
-                for (int i = 0; i < maxPages; i++) {
-                    Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + maxPages + " ◆");
-                    ArrayList<Inventory> oldPages = backpacks.get(playerId);
-                    if (oldPages != null && i < oldPages.size()) {
-                        Inventory oldPage = oldPages.get(i);
-                        for (int slot = 0; slot < oldPage.getSize(); slot++) {
-                            ItemStack item = oldPage.getItem(slot);
-                            if (item != null && !isNavigationItem(item)) {
-                                page.setItem(slot, item);
-                            }
-                        }
-                    }
+            int newMaxPages = getMaxPages(playerId);
+            ArrayList<Inventory> pages = backpacks.get(playerId);
+            int oldMaxPages = pages.size();
+
+            if (newMaxPages > oldMaxPages) {
+                for (int i = oldMaxPages; i < newMaxPages; i++) {
+                    Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + newMaxPages + " ◆");
                     pages.add(page);
                 }
-                addNavigationItems(pages);
+            } else if (newMaxPages < oldMaxPages) {
+                for (int i = oldMaxPages - 1; i >= newMaxPages; i--) {
+                    pages.remove(i);
+                }
+            }
+
+            for (int i = 0; i < pages.size(); i++) {
+                Inventory page = pages.get(i);
+                page.clear();
+                page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + pages.size() + " ◆");
+                pages.set(i, page);
+            }
+
+            moveItemsToNextPageIfNecessary(pages);
+            addNavigationItems(pages);
+        }
+    }
+
+    public void createBackup() {
+        File dataFolder = plugin.getDataFolder();
+        File backupFolder = new File(dataFolder, "backup");
+        if (!backupFolder.exists()) {
+            if (!backupFolder.mkdirs()) {
+                plugin.getLogger().log(Level.SEVERE, "Error creating backup directory: " + backupFolder.getAbsolutePath());
+                return;
+            }
+        }
+
+        File[] files = dataFolder.listFiles((dir, name) -> name.endsWith(".yml"));
+        if (files != null) {
+            for (File file : files) {
+                File backupFile = new File(backupFolder, file.getName());
+                try {
+                    Files.copy(file.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    plugin.getLogger().log(Level.SEVERE, "Error creating backup for file: " + file.getName(), e);
+                }
             }
         }
     }
@@ -186,6 +237,7 @@ public class VirtualBackpack implements Listener {
         int newPageIndex = currentPageIndex + direction;
         if (newPageIndex >= 0 && newPageIndex < pages.size()) {
             currentPageIndexMap.put(playerId, newPageIndex);
+            moveItemsToNextPageIfNecessary(pages);
         }
     }
 
@@ -218,14 +270,12 @@ public class VirtualBackpack implements Listener {
             }
             playerConfig.save(playerFile);
         } catch (IOException e) {
-            plugin.getLogger().warning("Error saving backpack YAML for player " + playerId);
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
         } finally {
             try {
                 playerConfig.save(playerFile);
             } catch (IOException e) {
-                plugin.getLogger().warning("Error saving backpack YAML for player " + playerId);
-                e.printStackTrace();
+                plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
             }
         }
     }

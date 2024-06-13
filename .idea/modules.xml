@@ -2,6 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/ExtraGUIsLite.VirtualStorages.main.iml" filepath="$PROJECT_DIR$/.idea/modules/ExtraGUIsLite.VirtualStorages.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/Spigot.ExtraGUIsLite.VirtualStorages.main.iml" filepath="$PROJECT_DIR$/.idea/modules/Spigot.ExtraGUIsLite.VirtualStorages.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/VirtualStorages.main.iml" filepath="$PROJECT_DIR$/.idea/modules/VirtualStorages.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/net.duart.VirtualStorages.main.iml" filepath="$PROJECT_DIR$/.idea/modules/net.duart.VirtualStorages.main.iml" />
     </modules>
