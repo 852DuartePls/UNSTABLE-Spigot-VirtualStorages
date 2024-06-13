@@ -15,10 +15,11 @@ public final class VirtualStorages extends JavaPlugin {
         getLogger().info("||    by DaveDuart     ||");
         virtualBackpack = new VirtualBackpack(this);
 
-        Objects.requireNonNull(getCommand("backpack")).setExecutor(new CommandManager(virtualBackpack));
-        Objects.requireNonNull(getCommand("vsreload")).setExecutor(new CommandManager(virtualBackpack));
-        Objects.requireNonNull(getCommand("backpack")).setTabCompleter(new CommandManager(virtualBackpack));
-        Objects.requireNonNull(getCommand("vsreload")).setTabCompleter(new CommandManager(virtualBackpack));
+        CommandManager commandManager = new CommandManager(new VirtualBackpack(this));
+        Objects.requireNonNull(getCommand("backpack")).setExecutor(commandManager);
+        Objects.requireNonNull(getCommand("vsreload")).setExecutor(commandManager);
+        Objects.requireNonNull(getCommand("backpack")).setTabCompleter(commandManager);
+        Objects.requireNonNull(getCommand("vsreload")).setTabCompleter(commandManager);
         getServer().getPluginManager().registerEvents(virtualBackpack, this);
         File dataFolder = getDataFolder();
         if (!dataFolder.exists()) {
@@ -35,8 +36,8 @@ public final class VirtualStorages extends JavaPlugin {
     @Override
     public void onDisable() {
         if (virtualBackpack != null) {
-            virtualBackpack.saveAllBackpacks();
             virtualBackpack.createBackup();
+            virtualBackpack.saveAllBackpacks();
         }
         getLogger().info("VirtualStorages Disabled.");
     }
