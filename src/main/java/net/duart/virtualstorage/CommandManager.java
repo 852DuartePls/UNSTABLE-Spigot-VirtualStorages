@@ -1,13 +1,11 @@
 package net.duart.virtualstorage;
 
-import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.InventoryView;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,13 +35,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             }
         } else if (command.getName().equalsIgnoreCase("vsreload")) {
             if (sender.hasPermission("virtualstorages.admin.reload")) {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    InventoryView openInventory = player.getOpenInventory();
-                    if (openInventory.getTitle().contains("Backpack - Page")) {
-                        player.closeInventory();
-                    }
-                }
-                virtualBackpack.updatePermissions();
+                virtualBackpack.reloadVirtualStorages();
                 sender.sendMessage(ChatColor.GREEN + "VirtualStorages permissions reloaded and backpacks updated.");
             } else {
                 sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");

@@ -20,6 +20,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 
 public class VirtualBackpack implements Listener {
@@ -27,6 +28,7 @@ public class VirtualBackpack implements Listener {
     private final Plugin plugin;
     private final HashMap<UUID, Integer> currentPageIndexMap = new HashMap<>();
     private final HashMap<UUID, ArrayList<Inventory>> backpacks = new HashMap<>();
+    private final Object fileLock = new Object();
 
     public VirtualBackpack(Plugin plugin) {
         this.plugin = plugin;
@@ -37,9 +39,11 @@ public class VirtualBackpack implements Listener {
         UUID playerId = player.getUniqueId();
         currentPageIndexMap.put(playerId, 0);
         ArrayList<Inventory> pages = getBackpackPages(playerId);
-        loadBackpackFromYAML(player, playerId, pages);
-        moveItemsToNextPageIfNecessary(pages);
-        player.openInventory(pages.get(0));
+        CompletableFuture.runAsync(() -> loadBackpackFromYAML(player, playerId, pages))
+                .thenRun(() -> {
+                    moveItemsToNextPageIfNecessary(pages);
+                    Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(pages.get(0)));
+                });
     }
 
     private void moveItemsToNextPageIfNecessary(ArrayList<Inventory> pages) {
@@ -57,7 +61,7 @@ public class VirtualBackpack implements Listener {
         addNavigationItems(pages);
     }
 
-    private void loadBackpackFromYAML(Player player ,UUID playerId, ArrayList<Inventory> pages) {
+    private void loadBackpackFromYAML(Player player, UUID playerId, ArrayList<Inventory> pages) {
         File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml");
         YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
         try {
@@ -104,6 +108,20 @@ public class VirtualBackpack implements Listener {
         return 1;
     }
 
+    public void reloadVirtualStorages() {
+        closeAllBackpackInventories();
+        updatePermissions();
+    }
+
+    private void closeAllBackpackInventories() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            InventoryView openInventory = player.getOpenInventory();
+            if (openInventory.getTitle().contains("Backpack - Page")) {
+                player.closeInventory();
+            }
+        }
+    }
+
     public void updatePermissions() {
         createBackup();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -113,33 +131,35 @@ public class VirtualBackpack implements Listener {
     }
 
     public void updatePlayerInventories() {
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            UUID playerId = player.getUniqueId();
-            int newMaxPages = getMaxPages(playerId);
-            ArrayList<Inventory> pages = backpacks.get(playerId);
-            int oldMaxPages = pages.size();
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                UUID playerId = player.getUniqueId();
+                int newMaxPages = getMaxPages(playerId);
+                ArrayList<Inventory> pages = backpacks.get(playerId);
+                int oldMaxPages = pages.size();
 
-            if (newMaxPages > oldMaxPages) {
-                for (int i = oldMaxPages; i < newMaxPages; i++) {
-                    Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + newMaxPages + " ◆");
-                    pages.add(page);
+                if (newMaxPages > oldMaxPages) {
+                    for (int i = oldMaxPages; i < newMaxPages; i++) {
+                        Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + newMaxPages + " ◆");
+                        pages.add(page);
+                    }
+                } else if (newMaxPages < oldMaxPages) {
+                    for (int i = oldMaxPages - 1; i >= newMaxPages; i--) {
+                        pages.remove(i);
+                    }
                 }
-            } else if (newMaxPages < oldMaxPages) {
-                for (int i = oldMaxPages - 1; i >= newMaxPages; i--) {
-                    pages.remove(i);
+
+                for (int i = 0; i < pages.size(); i++) {
+                    Inventory page = pages.get(i);
+                    page.clear();
+                    page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + pages.size() + " ◆");
+                    pages.set(i, page);
                 }
-            }
 
-            for (int i = 0; i < pages.size(); i++) {
-                Inventory page = pages.get(i);
-                page.clear();
-                page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + pages.size() + " ◆");
-                pages.set(i, page);
+                moveItemsToNextPageIfNecessary(pages);
+                addNavigationItems(pages);
             }
-
-            moveItemsToNextPageIfNecessary(pages);
-            addNavigationItems(pages);
-        }
+        });
     }
 
     public void createBackup() {
@@ -213,15 +233,16 @@ public class VirtualBackpack implements Listener {
                             int slot = event.getSlot();
                             if (slot == 45 || slot == 53) {
                                 boolean isLeftClick = event.getClick().isLeftClick();
-                                if (isLeftClick) {
+                                boolean isShiftClick = event.isShiftClick();
+                                boolean isNumericKey = event.getClick().isKeyboardClick();
+                                if (isLeftClick || isShiftClick || isNumericKey) {
                                     event.setCancelled(true);
-
                                     int direction = slot == 45 ? -1 : 1;
                                     changePage(playerId, direction);
 
                                     ArrayList<Inventory> updatedPages = getBackpackPages(playerId);
                                     Inventory updatedPage = updatedPages.get(currentPageIndexMap.getOrDefault(playerId, 0));
-                                    player.openInventory(updatedPage);
+                                    Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(updatedPage));
                                 }
                             }
                         }
@@ -237,7 +258,6 @@ public class VirtualBackpack implements Listener {
         int newPageIndex = currentPageIndex + direction;
         if (newPageIndex >= 0 && newPageIndex < pages.size()) {
             currentPageIndexMap.put(playerId, newPageIndex);
-            moveItemsToNextPageIfNecessary(pages);
         }
     }
 
@@ -249,30 +269,27 @@ public class VirtualBackpack implements Listener {
         String inventoryTitle = inventoryView.getTitle();
 
         if (inventoryTitle.contains("Backpack - Page")) {
-            saveBackpackInventory(player, playerId, getBackpackPages(playerId));
+            ArrayList<Inventory> pages = getBackpackPages(playerId);
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> saveBackpackInventory(player, playerId, pages));
         }
     }
 
     private void saveBackpackInventory(Player player, UUID playerId, ArrayList<Inventory> pages) {
         File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml");
         YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
-        try {
-            for (int i = 0; i < pages.size(); i++) {
-                Inventory page = pages.get(i);
-                for (int slot = 0; slot < page.getSize(); slot++) {
-                    ItemStack item = page.getItem(slot);
-                    if (item != null && isNavigationItem(item)) {
-                        playerConfig.set("pages." + i + ".slot" + slot, item);
-                    } else {
-                        playerConfig.set("pages." + i + ".slot" + slot, null);
+        synchronized (fileLock) {
+            try {
+                for (int i = 0; i < pages.size(); i++) {
+                    Inventory page = pages.get(i);
+                    for (int slot = 0; slot < page.getSize(); slot++) {
+                        ItemStack item = page.getItem(slot);
+                        if (item != null && isNavigationItem(item)) {
+                            playerConfig.set("pages." + i + ".slot" + slot, item);
+                        } else {
+                            playerConfig.set("pages." + i + ".slot" + slot, null);
+                        }
                     }
                 }
-            }
-            playerConfig.save(playerFile);
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
-        } finally {
-            try {
                 playerConfig.save(playerFile);
             } catch (IOException e) {
                 plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
@@ -296,8 +313,27 @@ public class VirtualBackpack implements Listener {
             Player player = Bukkit.getPlayer(playerId);
             if (player != null) {
                 ArrayList<Inventory> pages = backpacks.get(playerId);
-                saveBackpackInventory(player, playerId, pages);
+                if (hasInventoryChanged(player, playerId, pages)) {
+                    CompletableFuture.runAsync(() -> saveBackpackInventory(player, playerId, pages));
+                }
             }
         }
+    }
+
+    private boolean hasInventoryChanged(Player player, UUID playerId, ArrayList<Inventory> pages) {
+        File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml");
+        YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
+        for (int i = 0; i < pages.size(); i++) {
+            Inventory page = pages.get(i);
+            for (int slot = 0; slot < page.getSize(); slot++) {
+                ItemStack currentItem = page.getItem(slot);
+                ItemStack savedItem = playerConfig.getItemStack("pages." + i + ".slot" + slot);
+                if ((currentItem == null && savedItem != null) || (currentItem != null && !currentItem.equals(savedItem))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }
