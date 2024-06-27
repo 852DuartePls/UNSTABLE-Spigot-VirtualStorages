@@ -1,20 +1,23 @@
 package net.duart.virtualstorage;
 
+import org.bukkit.ChatColor;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 import java.util.Objects;
+import org.bukkit.command.ConsoleCommandSender;
 
 public final class VirtualStorages extends JavaPlugin {
 
+    public static ConsoleCommandSender cCSender;
     private VirtualBackpack virtualBackpack;
 
     @Override
     public void onEnable() {
-        getLogger().info("||   VirtualStorages   ||");
-        getLogger().info("||  Enabled correctly  ||");
-        getLogger().info("||    by DaveDuart     ||");
+        cCSender = getServer().getConsoleSender();
+        cCSender.sendMessage(ChatColor.YELLOW + "||   VirtualStorages   ||");
+        cCSender.sendMessage(ChatColor.YELLOW + "||    by DaveDuart     ||");
+        cCSender.sendMessage(ChatColor.YELLOW + "||  Enabled correctly  ||");
         virtualBackpack = new VirtualBackpack(this);
-
         Objects.requireNonNull(getCommand("backpack")).setExecutor(new CommandManager(virtualBackpack));
         Objects.requireNonNull(getCommand("vsreload")).setExecutor(new CommandManager(virtualBackpack));
         Objects.requireNonNull(getCommand("backpack")).setTabCompleter(new CommandManager(virtualBackpack));
@@ -38,6 +41,7 @@ public final class VirtualStorages extends JavaPlugin {
             virtualBackpack.saveAllBackpacks();
             virtualBackpack.createBackup();
         }
-        getLogger().info("VirtualStorages Disabled.");
+        cCSender.sendMessage(ChatColor.YELLOW + "||   VirtualStorages   ||");
+        cCSender.sendMessage(ChatColor.YELLOW + "||      Disabled       ||");
     }
 }
