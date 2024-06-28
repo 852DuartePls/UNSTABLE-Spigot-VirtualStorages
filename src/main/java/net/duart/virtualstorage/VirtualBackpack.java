@@ -270,7 +270,6 @@ public class VirtualBackpack implements Listener {
 
     private void saveBackpackInventory(Player player, UUID playerId, ArrayList<Inventory> pages) {
         File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml.gz");
-        File tempFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".tmp.yml");
         YamlConfiguration playerConfig = new YamlConfiguration();
 
         try {
@@ -286,21 +285,17 @@ public class VirtualBackpack implements Listener {
                         }
                     }
                 }
+
+                File tempFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".tmp.yml");
                 playerConfig.save(tempFile);
-            }
 
-            try (FileInputStream fileInputStream = new FileInputStream(tempFile);
-                 GZIPOutputStream gzipOutputStream = new GZIPOutputStream(new FileOutputStream(playerFile))) {
+                try (FileOutputStream fileOutputStream = new FileOutputStream(playerFile);
+                     GZIPOutputStream gzipOutputStream = new GZIPOutputStream(fileOutputStream)) {
 
-                byte[] buffer = new byte[1024];
-                int len;
-                while ((len = fileInputStream.read(buffer)) > 0) {
-                    gzipOutputStream.write(buffer, 0, len);
+                    Files.copy(tempFile.toPath(), gzipOutputStream);
                 }
-            }
 
-            if (!tempFile.delete()) {
-                plugin.getLogger().log(Level.WARNING, "Could not delete temporary file: " + tempFile.getAbsolutePath());
+                Files.delete(tempFile.toPath());
             }
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
@@ -343,9 +338,9 @@ public class VirtualBackpack implements Listener {
     public void saveAllBackpacks() {
         for (UUID playerId : backpacks.keySet()) {
             Player player = Bukkit.getPlayer(playerId);
-        if (player != null) {
-            ArrayList<Inventory> pages = backpacks.get(playerId);
-            CompletableFuture.runAsync(() -> saveBackpackInventory(player, playerId, pages));
+            if (player != null) {
+                ArrayList<Inventory> pages = backpacks.get(playerId);
+                CompletableFuture.runAsync(() -> saveBackpackInventory(player, playerId, pages));
             }
         }
     }

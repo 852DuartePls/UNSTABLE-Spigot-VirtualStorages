@@ -17,6 +17,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         this.virtualBackpack = virtualBackpack;
     }
 
+    @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().equalsIgnoreCase("backpack")) {
             if (sender instanceof Player player) {
@@ -27,11 +28,10 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                     }
                 }
                 player.sendMessage(ChatColor.RED + "You are not allowed to use the backpack.");
-                return true;
             } else {
                 sender.sendMessage(ChatColor.RED + "This command can only be executed by a player.");
-                return true;
             }
+            return true;
         } else if (command.getName().equalsIgnoreCase("vsreload")) {
             if (sender.hasPermission("virtualstorages.admin.reload")) {
                 virtualBackpack.reloadVirtualStorages();
