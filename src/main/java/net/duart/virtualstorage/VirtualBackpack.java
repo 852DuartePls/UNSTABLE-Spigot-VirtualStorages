@@ -6,6 +6,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
@@ -119,10 +120,10 @@ public class VirtualBackpack implements Listener {
 
     public void updatePermissions() {
         createBackup();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        CompletableFuture.runAsync(() -> {
             saveAllBackpacks();
             updatePlayerInventories();
-        }, 30L);
+        });
     }
 
     public void updatePlayerInventories() {
@@ -207,43 +208,59 @@ public class VirtualBackpack implements Listener {
         return true;
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
         Player player = (Player) event.getWhoClicked();
         UUID playerId = player.getUniqueId();
         InventoryView inventoryView = event.getView();
         String inventoryTitle = inventoryView.getTitle();
-        if (inventoryTitle.contains("Backpack - Page")) {
-            ArrayList<Inventory> pages = getBackpackPages(playerId);
-            int currentPageIndex = currentPageIndexMap.getOrDefault(playerId, 0);
-            Inventory currentPage = pages.get(currentPageIndex);
-            if (event.getClickedInventory() != null && event.getClickedInventory().equals(currentPage)) {
-                ItemStack clickedItem = event.getCurrentItem();
-                if (clickedItem != null && clickedItem.getType() == Material.ARROW) {
-                    ItemMeta meta = clickedItem.getItemMeta();
-                    if (meta != null && meta.hasDisplayName()) {
-                        String displayName = meta.getDisplayName();
-                        if (displayName.equals("§c<< ᴘʀᴇᴠɪᴏᴜs ᴘᴀɢᴇ") || displayName.equals("§aɴᴇxᴛ ᴘᴀɢᴇ >>")) {
-                            int slot = event.getSlot();
-                            if (slot == 45 || slot == 53) {
-                                boolean isLeftClick = event.getClick().isLeftClick();
-                                boolean isShiftClick = event.isShiftClick();
-                                boolean isNumericKey = event.getClick().isKeyboardClick();
-                                if (isLeftClick || isShiftClick || isNumericKey) {
-                                    event.setCancelled(true);
-                                    int direction = slot == 45 ? -1 : 1;
-                                    changePage(playerId, direction);
 
-                                    ArrayList<Inventory> updatedPages = getBackpackPages(playerId);
-                                    Inventory updatedPage = updatedPages.get(currentPageIndexMap.getOrDefault(playerId, 0));
-                                    Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(updatedPage));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        if (!inventoryTitle.contains("Backpack - Page")) {
+            return;
         }
+
+        ArrayList<Inventory> pages = getBackpackPages(playerId);
+        int currentPageIndex = currentPageIndexMap.getOrDefault(playerId, 0);
+        Inventory currentPage = pages.get(currentPageIndex);
+
+        if (event.getClickedInventory() == null || !event.getClickedInventory().equals(currentPage)) {
+            return;
+        }
+
+        ItemStack clickedItem = event.getCurrentItem();
+        if (clickedItem == null || clickedItem.getType() != Material.ARROW) {
+            return;
+        }
+
+        ItemMeta meta = clickedItem.getItemMeta();
+        if (meta == null || !meta.hasDisplayName()) {
+            return;
+        }
+
+        String displayName = meta.getDisplayName();
+        if (!displayName.equals("§c<< ᴘʀᴇᴠɪᴏᴜs ᴘᴀɢᴇ") && !displayName.equals("§aɴᴇxᴛ ᴘᴀɢᴇ >>")) {
+            return;
+        }
+
+        int slot = event.getSlot();
+        if (slot != 45 && slot != 53) {
+            return;
+        }
+
+        boolean isLeftClick = event.getClick().isLeftClick();
+        boolean isShiftClick = event.isShiftClick();
+        boolean isNumericKey = event.getClick().isKeyboardClick();
+        if (!isLeftClick && !isShiftClick && !isNumericKey) {
+            return;
+        }
+
+        event.setCancelled(true);
+        int direction = slot == 45 ? -1 : 1;
+        changePage(playerId, direction);
+
+        ArrayList<Inventory> updatedPages = getBackpackPages(playerId);
+        Inventory updatedPage = updatedPages.get(currentPageIndexMap.getOrDefault(playerId, 0));
+        Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(updatedPage));
     }
 
     private void changePage(UUID playerId, int direction) {
@@ -255,23 +272,24 @@ public class VirtualBackpack implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryClose(InventoryCloseEvent event) {
         Player player = (Player) event.getPlayer();
         UUID playerId = player.getUniqueId();
         InventoryView inventoryView = event.getView();
         String inventoryTitle = inventoryView.getTitle();
 
-        if (inventoryTitle.contains("Backpack - Page")) {
-            ArrayList<Inventory> pages = getBackpackPages(playerId);
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> saveBackpackInventory(player, playerId, pages));
+        if (!inventoryTitle.contains("Backpack - Page")) {
+            return;
         }
+
+        ArrayList<Inventory> pages = getBackpackPages(playerId);
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> saveBackpackInventory(player, playerId, pages));
     }
 
     private void saveBackpackInventory(Player player, UUID playerId, ArrayList<Inventory> pages) {
         File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml.gz");
         YamlConfiguration playerConfig = new YamlConfiguration();
-
         try {
             synchronized (fileLock) {
                 for (int i = 0; i < pages.size(); i++) {
@@ -285,7 +303,6 @@ public class VirtualBackpack implements Listener {
                         }
                     }
                 }
-
                 File tempFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".tmp.yml");
                 playerConfig.save(tempFile);
 
@@ -294,7 +311,6 @@ public class VirtualBackpack implements Listener {
 
                     Files.copy(tempFile.toPath(), gzipOutputStream);
                 }
-
                 Files.delete(tempFile.toPath());
             }
         } catch (IOException e) {

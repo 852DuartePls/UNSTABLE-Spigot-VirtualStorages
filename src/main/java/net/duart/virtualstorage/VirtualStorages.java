@@ -18,10 +18,11 @@ public final class VirtualStorages extends JavaPlugin {
         cCSender.sendMessage(ChatColor.YELLOW + "||    by DaveDuart     ||");
         cCSender.sendMessage(ChatColor.YELLOW + "||  Enabled correctly  ||");
         virtualBackpack = new VirtualBackpack(this);
-        Objects.requireNonNull(getCommand("backpack")).setExecutor(new CommandManager(virtualBackpack));
-        Objects.requireNonNull(getCommand("vsreload")).setExecutor(new CommandManager(virtualBackpack));
-        Objects.requireNonNull(getCommand("backpack")).setTabCompleter(new CommandManager(virtualBackpack));
-        Objects.requireNonNull(getCommand("vsreload")).setTabCompleter(new CommandManager(virtualBackpack));
+        CommandManager commandManager = new CommandManager(virtualBackpack);
+        Objects.requireNonNull(getCommand("backpack")).setExecutor(commandManager);
+        Objects.requireNonNull(getCommand("vsreload")).setExecutor(commandManager);
+        Objects.requireNonNull(getCommand("backpack")).setTabCompleter(commandManager);
+        Objects.requireNonNull(getCommand("vsreload")).setTabCompleter(commandManager);
         getServer().getPluginManager().registerEvents(virtualBackpack, this);
         File dataFolder = getDataFolder();
         if (!dataFolder.exists()) {
