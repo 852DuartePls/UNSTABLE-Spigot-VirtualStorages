@@ -64,7 +64,7 @@ public class FileHandlers {
             return;
         }
 
-        File targetFile = new File(plugin.getDataFolder(), targetPlayer.getName() + " - " + targetId.toString() + ".yml.gz");
+        File targetFile = new File(plugin.getDataFolder(), targetPlayer.getName() + " - " + targetId + ".yml.gz");
         YamlConfiguration targetConfig = new YamlConfiguration();
         try {
             synchronized (fileLock) {
