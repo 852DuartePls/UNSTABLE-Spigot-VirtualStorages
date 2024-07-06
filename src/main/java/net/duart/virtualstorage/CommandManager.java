@@ -33,15 +33,50 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                 }
             }
 
-            player.sendMessage(ChatColor.RED + "You are not allowed to use the backpack.");
+            player.sendMessage(ChatColor.RED + "You do not have the permissions to open a Virtual Backpack");
             return true;
-        } else if (command.getName().equalsIgnoreCase("vsreload")) {
-            if (sender.hasPermission("virtualstorages.admin.reload")) {
-                virtualBackpack.reloadVirtualStorages();
-                sender.sendMessage(ChatColor.GREEN + "VirtualStorages permissions reloaded and backpacks updated.");
-            } else {
+        }
+
+        if (command.getName().equalsIgnoreCase("vsreload")) {
+            if (!sender.hasPermission("virtualstorages.admin.reload")) {
                 sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
+                return true;
             }
+
+            virtualBackpack.reloadVirtualStorages();
+            sender.sendMessage(ChatColor.GREEN + "Updating player inventories...");
+            boolean success = virtualBackpack.updatePlayerInventories();
+            if (success) {
+                sender.sendMessage(ChatColor.GREEN + "Backpack Permissions have been successfully reloaded");
+            } else {
+                sender.sendMessage(ChatColor.RED + "Failed to reload Virtual Storages. Check console for errors.");
+            }
+            return true;
+        }
+
+        if (command.getName().equalsIgnoreCase("backpackview")) {
+            if (!(sender instanceof Player admin)) {
+                sender.sendMessage(ChatColor.RED + "This command can only be executed by a player.");
+                return true;
+            }
+
+            if (!admin.hasPermission("virtualstorage.admin")) {
+                admin.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
+                return true;
+            }
+
+            if (args.length == 0) {
+                admin.sendMessage(ChatColor.RED + "Usage: /backpackview <player>");
+                return true;
+            }
+
+            Player target = admin.getServer().getPlayer(args[0]);
+            if (target == null) {
+                admin.sendMessage(ChatColor.RED + "Player not found or offline.");
+                return true;
+            }
+
+            virtualBackpack.openTargetBackpack(admin, target);
             return true;
         }
 
@@ -51,7 +86,13 @@ public class CommandManager implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
-        if (args.length == 1) {
+        if (command.getName().equalsIgnoreCase("backpackview")) {
+            if (args.length == 1) {
+                for (Player player : sender.getServer().getOnlinePlayers()) {
+                    completions.add(player.getName());
+                }
+            }
+        } else if (args.length == 0) {
             completions.add("backpack");
             completions.add("vsreload");
         }

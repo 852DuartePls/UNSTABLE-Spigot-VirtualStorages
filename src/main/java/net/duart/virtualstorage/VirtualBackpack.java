@@ -1,9 +1,8 @@
 package net.duart.virtualstorage;
 
+import net.md_5.bungee.api.ChatColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -16,7 +15,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -25,19 +25,18 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
 public class VirtualBackpack implements Listener {
 
     private final Plugin plugin;
     private final ConcurrentHashMap<UUID, Integer> currentPageIndexMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ArrayList<Inventory>> backpacks = new ConcurrentHashMap<>();
-    private final Object fileLock = new Object();
+    private final ConcurrentHashMap<Player, Player> adminToTargetMap = new ConcurrentHashMap<>();
+    private final FileHandlers fileHandlers;
 
-    public VirtualBackpack(Plugin plugin) {
+    public VirtualBackpack(Plugin plugin, FileHandlers fileHandlers) {
         this.plugin = plugin;
-        Bukkit.getPluginManager().registerEvents(this, plugin);
+        this.fileHandlers = fileHandlers;
     }
 
     public void openBackpack(Player player) {
@@ -50,15 +49,51 @@ public class VirtualBackpack implements Listener {
             File yamlFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml");
 
             if (gzippedFile.exists()) {
-                loadBackpackFromYAML(playerId, pages, gzippedFile);
-            } else if (yamlFile.exists()) {
-                loadBackpackFromYAML(playerId, pages, yamlFile);
+                fileHandlers.loadBackpackFromYAML(playerId, pages, gzippedFile);
+            } else if (yamlFile.exists() || !gzippedFile.exists()) {
+                fileHandlers.loadBackpackFromYAML(playerId, pages, yamlFile);
             } else {
-                saveBackpackInventory(player, playerId, pages);
+                fileHandlers.saveBackpackInventory(player, playerId, pages);
             }
         }).thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
             moveItemsToNextPageIfNecessary(pages);
             player.openInventory(pages.get(0));
+        }));
+    }
+
+    public void openTargetBackpack(Player admin, Player target) {
+
+        if (!target.hasPermission("virtualstorages.use") && !target.hasPermission("virtualstorages.use.")) {
+            admin.sendMessage(ChatColor.RED + "This player does not have a Backpack.");
+            return;
+        }
+
+        UUID targetId = target.getUniqueId();
+        ArrayList<Inventory> targetPages = getBackpackPages(targetId);
+
+        File gzippedFile = new File(plugin.getDataFolder(), target.getName() + " - " + targetId + ".yml.gz");
+        File yamlFile = new File(plugin.getDataFolder(), target.getName() + " - " + targetId + ".yml");
+
+        CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+            try {
+                if (gzippedFile.exists()) {
+                    fileHandlers.loadBackpackFromYAML(targetId, targetPages, gzippedFile);
+                } else if (yamlFile.exists() || !gzippedFile.exists()) {
+                    fileHandlers.loadBackpackFromYAML(targetId, targetPages, yamlFile);
+                }
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.SEVERE, "Error handling backpack files for player " + target.getName(), e);
+                return;
+            }
+
+            adminToTargetMap.put(admin, target);
+        });
+        future.thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
+            if (adminToTargetMap.containsKey(admin)) {
+                admin.openInventory(targetPages.get(0));
+            } else {
+                admin.sendMessage(ChatColor.RED + "An error happened while trying to open the target's inventory");
+            }
         }));
     }
 
@@ -126,25 +161,35 @@ public class VirtualBackpack implements Listener {
         });
     }
 
-    public void updatePlayerInventories() {
+    public boolean updatePlayerInventories() {
+        boolean[] success = { true };
+
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                UUID playerId = player.getUniqueId();
-                int newMaxPages = getMaxPages(playerId);
-                ArrayList<Inventory> pages = backpacks.computeIfAbsent(playerId, k -> new ArrayList<>());
-                int oldMaxPages = pages.size();
-                if (newMaxPages > oldMaxPages) {
-                    for (int i = oldMaxPages; i < newMaxPages; i++) {
-                        Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + newMaxPages + " ◆");
-                        pages.add(page);
+            try {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    UUID playerId = player.getUniqueId();
+                    int newMaxPages = getMaxPages(playerId);
+                    ArrayList<Inventory> pages = backpacks.computeIfAbsent(playerId, k -> new ArrayList<>());
+                    int oldMaxPages = pages.size();
+                    if (newMaxPages > oldMaxPages) {
+                        for (int i = oldMaxPages; i < newMaxPages; i++) {
+                            Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + newMaxPages + " ◆");
+                            pages.add(page);
+                        }
+                    } else if (newMaxPages < oldMaxPages) {
+                        pages.subList(newMaxPages, oldMaxPages).clear();
                     }
-                } else if (newMaxPages < oldMaxPages) {
-                    pages.subList(newMaxPages, oldMaxPages).clear();
+                    moveItemsToNextPageIfNecessary(pages);
+                    addNavigationItems(pages);
                 }
-                moveItemsToNextPageIfNecessary(pages);
-                addNavigationItems(pages);
+            } catch (Exception e) {
+                success[0] = false;
+                plugin.getLogger().log(Level.SEVERE, "Error updating player inventories", e);
             }
+
         });
+
+        return success[0];
     }
 
     public void createBackup() {
@@ -219,8 +264,13 @@ public class VirtualBackpack implements Listener {
             return;
         }
 
-        ArrayList<Inventory> pages = getBackpackPages(playerId);
-        int currentPageIndex = currentPageIndexMap.getOrDefault(playerId, 0);
+        UUID targetId = playerId;
+        if (adminToTargetMap.containsKey(player)) {
+            targetId = adminToTargetMap.get(player).getUniqueId();
+        }
+
+        ArrayList<Inventory> pages = getBackpackPages(targetId);
+        int currentPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
         Inventory currentPage = pages.get(currentPageIndex);
 
         if (event.getClickedInventory() == null || !event.getClickedInventory().equals(currentPage)) {
@@ -256,10 +306,10 @@ public class VirtualBackpack implements Listener {
 
         event.setCancelled(true);
         int direction = slot == 45 ? -1 : 1;
-        changePage(playerId, direction);
+        changePage(targetId, direction);
 
-        ArrayList<Inventory> updatedPages = getBackpackPages(playerId);
-        Inventory updatedPage = updatedPages.get(currentPageIndexMap.getOrDefault(playerId, 0));
+        int updatedPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
+        Inventory updatedPage = getBackpackPages(targetId).get(updatedPageIndex);
         Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(updatedPage));
     }
 
@@ -272,7 +322,7 @@ public class VirtualBackpack implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
         Player player = (Player) event.getPlayer();
         UUID playerId = player.getUniqueId();
@@ -283,80 +333,39 @@ public class VirtualBackpack implements Listener {
             return;
         }
 
-        ArrayList<Inventory> pages = getBackpackPages(playerId);
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> saveBackpackInventory(player, playerId, pages));
-    }
-
-    private void saveBackpackInventory(Player player, UUID playerId, ArrayList<Inventory> pages) {
-        File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId.toString() + ".yml.gz");
-        YamlConfiguration playerConfig = new YamlConfiguration();
-        try {
-            synchronized (fileLock) {
-                for (int i = 0; i < pages.size(); i++) {
-                    Inventory page = pages.get(i);
-                    for (int slot = 0; slot < page.getSize(); slot++) {
-                        ItemStack item = page.getItem(slot);
-                        if (item != null && isNavigationItem(item)) {
-                            playerConfig.set("pages." + i + ".slot" + slot, item);
-                        } else {
-                            playerConfig.set("pages." + i + ".slot" + slot, null);
-                        }
-                    }
-                }
-                File tempFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".tmp.yml");
-                playerConfig.save(tempFile);
-
-                try (FileOutputStream fileOutputStream = new FileOutputStream(playerFile);
-                     GZIPOutputStream gzipOutputStream = new GZIPOutputStream(fileOutputStream)) {
-
-                    Files.copy(tempFile.toPath(), gzipOutputStream);
-                }
-                Files.delete(tempFile.toPath());
-            }
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
+        UUID targetId = playerId;
+        if (adminToTargetMap.containsKey(player)) {
+            targetId = adminToTargetMap.get(player).getUniqueId();
         }
-    }
 
-    private void loadBackpackFromYAML(UUID playerId, ArrayList<Inventory> pages, File file) {
-        synchronized (fileLock) {
-            try {
-                YamlConfiguration playerConfig;
-                if (file.getName().endsWith(".yml.gz")) {
-                    try (FileInputStream fileInputStream = new FileInputStream(file);
-                         GZIPInputStream gzipInputStream = new GZIPInputStream(fileInputStream);
-                         InputStreamReader inputStreamReader = new InputStreamReader(gzipInputStream);
-                         BufferedReader reader = new BufferedReader(inputStreamReader)) {
+        ArrayList<Inventory> pages = getBackpackPages(targetId);
+        int currentPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
 
-                        playerConfig = YamlConfiguration.loadConfiguration(reader);
-                    }
-                } else {
-                    playerConfig = YamlConfiguration.loadConfiguration(file);
-                }
-                for (int i = 0; i < pages.size(); i++) {
-                    Inventory page = pages.get(i);
-                    ConfigurationSection pageSection = playerConfig.getConfigurationSection("pages." + i);
-                    if (pageSection != null) {
-                        for (String key : pageSection.getKeys(false)) {
-                            ItemStack item = pageSection.getItemStack(key);
-                            if (item != null) {
-                                page.setItem(Integer.parseInt(key.replace("slot", "")), item);
-                            }
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                plugin.getLogger().log(Level.SEVERE, "Error loading backpack YAML for player " + playerId, e);
-            }
+        Inventory closedInventory = event.getInventory();
+        if (currentPageIndex >= pages.size() || !closedInventory.equals(pages.get(currentPageIndex))) {
+            return;
         }
+
+        pages.set(currentPageIndex, closedInventory);
+        fileHandlers.saveBackpackInventoryForTarget(targetId, pages);
+        currentPageIndexMap.put(targetId, 0);
     }
 
     public void saveAllBackpacks() {
-        for (UUID playerId : backpacks.keySet()) {
-            Player player = Bukkit.getPlayer(playerId);
-            if (player != null) {
-                ArrayList<Inventory> pages = backpacks.get(playerId);
-                CompletableFuture.runAsync(() -> saveBackpackInventory(player, playerId, pages));
+        if (!adminToTargetMap.isEmpty()) {
+            for (Player admin : adminToTargetMap.keySet()) {
+                Player target = adminToTargetMap.get(admin);
+                UUID targetId = target.getUniqueId();
+                ArrayList<Inventory> pages = getBackpackPages(targetId);
+                CompletableFuture.runAsync(() -> fileHandlers.saveBackpackInventoryForTarget(targetId, pages));
+            }
+        } else {
+            for (UUID playerId : backpacks.keySet()) {
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null) {
+                    ArrayList<Inventory> pages = backpacks.get(playerId);
+                    CompletableFuture.runAsync(() -> fileHandlers.saveBackpackInventory(player, playerId, pages));
+                }
             }
         }
     }

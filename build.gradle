@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'net.duart'
-version = '1.3.0.0'
+version = '1.3.0.0 - EXPERIMENTAL'
 
 repositories {
     mavenCentral()

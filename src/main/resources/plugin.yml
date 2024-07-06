@@ -1,6 +1,9 @@
 name: VirtualStorages
-version: 1.3.0.0
+version: 1.3.0.0-EXPERIMENTAL
 author: DaveDuart
+description: |
+  Provides virtual backpacks so that your players can 
+  store and access their items from any location
 main: net.duart.virtualstorage.VirtualStorages
 api-version: 1.20
 
@@ -12,3 +15,7 @@ commands:
   vsreload:
     description: Reloads VirtualStorages permissions and configurations.
     usage: /vsreload
+  backpackview:
+    description: Allows the player to open another user's inventory.
+    usage: /backpackview <PlayerName>
+    aliases: [bpview]
