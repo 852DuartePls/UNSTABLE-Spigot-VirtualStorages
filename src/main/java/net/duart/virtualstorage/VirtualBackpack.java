@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 
 public class VirtualBackpack implements Listener {
@@ -63,8 +64,17 @@ public class VirtualBackpack implements Listener {
 
     public void openTargetBackpack(Player admin, Player target) {
 
-        if (!target.hasPermission("virtualstorages.use") && !target.hasPermission("virtualstorages.use.")) {
-            admin.sendMessage(ChatColor.RED + "This player does not have a Backpack.");
+        boolean hasPermission = false;
+
+        for (int i = 999; i >= 1; i--) {
+            if (target.hasPermission("virtualstorages.use." + i)) {
+                hasPermission = true;
+                break;
+            }
+        }
+
+        if (!hasPermission) {
+            admin.sendMessage(ChatColor.RED + "This player does not have any permissions.");
             return;
         }
 
@@ -162,15 +172,15 @@ public class VirtualBackpack implements Listener {
     }
 
     public boolean updatePlayerInventories() {
-        boolean[] success = { true };
-
+        AtomicBoolean success = new AtomicBoolean(true);
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    UUID playerId = player.getUniqueId();
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                UUID playerId = player.getUniqueId();
+                try {
                     int newMaxPages = getMaxPages(playerId);
-                    ArrayList<Inventory> pages = backpacks.computeIfAbsent(playerId, k -> new ArrayList<>());
+                    ArrayList<Inventory> pages = backpacks.computeIfAbsent(playerId, k -> createNewBackpackPages(newMaxPages));
                     int oldMaxPages = pages.size();
+
                     if (newMaxPages > oldMaxPages) {
                         for (int i = oldMaxPages; i < newMaxPages; i++) {
                             Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + newMaxPages + " ◆");
@@ -179,17 +189,23 @@ public class VirtualBackpack implements Listener {
                     } else if (newMaxPages < oldMaxPages) {
                         pages.subList(newMaxPages, oldMaxPages).clear();
                     }
+
+                    for (int i = 0; i < pages.size(); i++) {
+                        Inventory page = pages.get(i);
+                        page.clear();
+                        page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + pages.size() + " ◆");
+                        pages.set(i, page);
+                    }
+
                     moveItemsToNextPageIfNecessary(pages);
                     addNavigationItems(pages);
+                } catch (Exception e) {
+                    success.set(false);
+                    plugin.getLogger().log(Level.SEVERE, "Error updating player inventories", e);
                 }
-            } catch (Exception e) {
-                success[0] = false;
-                plugin.getLogger().log(Level.SEVERE, "Error updating player inventories", e);
             }
-
         });
-
-        return success[0];
+        return success.get();
     }
 
     public void createBackup() {

@@ -38,7 +38,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         }
 
         if (command.getName().equalsIgnoreCase("vsreload")) {
-            if (!sender.hasPermission("virtualstorages.admin.reload")) {
+            if (!sender.hasPermission("virtualstorages.admin")) {
                 sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
                 return true;
             }
@@ -60,7 +60,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                 return true;
             }
 
-            if (!admin.hasPermission("virtualstorage.admin")) {
+            if (!admin.hasPermission("virtualstorages.admin")) {
                 admin.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
                 return true;
             }
