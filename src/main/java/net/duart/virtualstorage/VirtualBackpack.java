@@ -49,21 +49,25 @@ public class VirtualBackpack implements Listener {
             File gzippedFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml.gz");
             File yamlFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml");
 
-            if (gzippedFile.exists()) {
-                fileHandlers.loadBackpackFromYAML(playerId, pages, gzippedFile);
-            } else if (yamlFile.exists() || !gzippedFile.exists()) {
-                fileHandlers.loadBackpackFromYAML(playerId, pages, yamlFile);
-            } else {
-                fileHandlers.saveBackpackInventory(player, playerId, pages);
+            try {
+                if (gzippedFile.exists()) {
+                    fileHandlers.loadBackpackFromYAML(playerId, pages, gzippedFile);
+                } else if (yamlFile.exists() || !gzippedFile.exists()) {
+                    fileHandlers.loadBackpackFromYAML(playerId, pages, yamlFile);
+                } else {
+                    fileHandlers.saveBackpackInventory(player, playerId, pages);
+                }
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.SEVERE, "Error loading/saving backpack for player " + player.getName(), e);
             }
         }).thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
             moveItemsToNextPageIfNecessary(pages);
             player.openInventory(pages.get(0));
+            adminToTargetMap.remove(player);
         }));
     }
 
     public void openTargetBackpack(Player admin, Player target) {
-
         boolean hasPermission = false;
 
         for (int i = 999; i >= 1; i--) {
@@ -93,7 +97,6 @@ public class VirtualBackpack implements Listener {
                 }
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "Error handling backpack files for player " + target.getName(), e);
-                return;
             }
 
             adminToTargetMap.put(admin, target);
