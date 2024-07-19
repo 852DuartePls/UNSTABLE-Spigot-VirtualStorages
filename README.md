@@ -34,6 +34,8 @@ VirtualStorages is a Minecraft Plugin designed to increase storage capabilities 
 - **virtualstorages.use.#:** Allows access to virtual backpacks, where "#" is the backpack number (1-999).
 - **virtualstorages.admin:** Allows admins to access the `/vsreload` and `/backpackview` commands.
 
+> [!IMPORTANT]
+> You need a permissions plugin to do this .
 ---
 
 **Credits:**  
