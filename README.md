@@ -1,16 +1,16 @@
 ### VirtualStorages Plugin
 
 **Description:**  
-VirtualStorages is a Bukkit plugin designed to enhance storage capabilities for players on Minecraft servers. It introduces the concept of virtual backpacks, allowing players to store items beyond their regular inventory limits.
+VirtualStorages is a Minecraft Plugin designed to increase storage capabilities for players on servers. It introduces virtual backpacks, allowing players to store items inside a virtual compartment that is accessible from everywhere and anywhere.
 
 ---
 
 **Features:**
 
-1. **Virtual Backpacks:** Players can access additional storage space through virtual backpacks.
-2. **Permission System:** Granular permissions control who can use virtual backpacks, ensuring balanced gameplay.
-3. **Reload Command:** Admins can reload permissions on-the-fly using the `vsreload` command.
-4. **Data Persistence:** Player backpack data is saved and loaded automatically, even across server restarts. The data is stored in a YAML file located inside the Data Folder of the plugin. This ensures that player inventories remain accessible across sessions and also provides easy editing of this file.
+1. **Virtual Backpacks:** Players can access additional storage slots inside a virtual backpack.
+2. **Permission:** Permissions to control who can use virtual backpacks and to manipulate the number of backpacks a player can have.
+3. **Admin Control:** Admins can inspect and manipulate the contents of every backpack created by players using `/backpackview <player>`.
+4. **Data Persistence:** The data is stored in a YAML file located inside the Data Folder of the plugin.
 ---
 
 **Installation:**
@@ -24,6 +24,7 @@ VirtualStorages is a Bukkit plugin designed to enhance storage capabilities for 
 **Commands:**
 
 - **/backpack:** Opens the virtual backpack for players who have the appropriate permission.
+- **/backpackview <player>:** Allows the player to visualize and interact with another player's backpack.
 - **/vsreload:** Reloads permissions for VirtualStorages. Requires admin privileges.
 
 ---
@@ -31,7 +32,7 @@ VirtualStorages is a Bukkit plugin designed to enhance storage capabilities for 
 **Permissions:**
 
 - **virtualstorages.use.#:** Allows access to virtual backpacks, where "#" is the backpack number (1-999).
-- **virtualstorages.admin.reload:** Allows admins to reload VirtualStorages permissions.
+- **virtualstorages.admin:** Allows admins to access the `/vsreload` and `/backpackview` commands.
 
 ---
 
@@ -55,3 +56,10 @@ VirtualStorages is licensed under the GNU General Public License v3.0. See the `
 Your feedback is valuable! Feel free to submit bug reports, feature requests, or general feedback on the GitHub repository's issues section.
 
 ---
+
+#### **TODO:**
+- [x] Add a way to see other players' backpacks in-game
+- [ ] Make `/vsreload` no longer necessary
+- [ ] Add option for Database storage
+
+--- 
