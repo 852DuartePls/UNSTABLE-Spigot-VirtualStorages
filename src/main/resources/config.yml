@@ -1,0 +1,16 @@
+texts:
+  # inventories - title of the backpack, use %page% and %maxpages% to insert the current page and the total number of pages
+  title: "&9◆ Backpack - Page %page% of %maxpages% ◆"
+  # navigation items - Text of the navigation items that would be used to navigate between pages
+  prevArrow: "&c<< Previous page"
+  nextArrow: "&aNext page >>"
+  # chat messages
+  waitToOpen: "&eWait a second to open your backpack again."
+  noPermission: "&cYou do not have permissions to open backpacks."
+  noCommandPermission: "&cYou do not have permissions to use this command."
+  noPermissionOther: "&cThis player does not have permissions to open backpacks."
+  backpackInUse: "&cThat player's backpack is currently in use. Try again in a moment."
+  itemsRecovered: "&aYour previous stored items were recovered to your backpack!"
+  itemsOverflowed: "&eOh no! You lost permission to access some pages in your backpack, so some items were safely stored until you can access them again."
+  # reload
+  reloadDone: "&aText file reloaded."

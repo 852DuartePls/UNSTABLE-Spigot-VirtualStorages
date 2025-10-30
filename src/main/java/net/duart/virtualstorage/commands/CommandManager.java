@@ -1,5 +1,8 @@
-package net.duart.virtualstorage;
+package net.duart.virtualstorage.commands;
 
+import net.duart.virtualstorage.VirtualStorages;
+import net.duart.virtualstorage.listener.VirtualBackpack;
+import net.duart.virtualstorage.util.Messages;
 import net.md_5.bungee.api.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -7,19 +10,22 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
+import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.List;
 
 public class CommandManager implements CommandExecutor, TabCompleter {
 
     private final VirtualBackpack virtualBackpack;
+    private final VirtualStorages virtualStorages;
 
-    public CommandManager(VirtualBackpack virtualBackpack) {
+    public CommandManager(VirtualBackpack virtualBackpack, VirtualStorages virtualStorages) {
+        this.virtualStorages = virtualStorages;
         this.virtualBackpack = virtualBackpack;
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+    public boolean onCommand(@Nonnull CommandSender sender,@Nonnull Command command,@Nonnull String label,@Nonnull String[] args) {
         if (command.getName().equalsIgnoreCase("backpack")) {
             if (!(sender instanceof Player player)) {
                 sender.sendMessage(ChatColor.RED + "This command can only be executed by a player.");
@@ -33,24 +39,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                 }
             }
 
-            player.sendMessage(ChatColor.RED + "You do not have the permissions to open a Virtual Backpack");
-            return true;
-        }
-
-        if (command.getName().equalsIgnoreCase("vsreload")) {
-            if (!sender.hasPermission("virtualstorages.admin")) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
-                return true;
-            }
-
-            virtualBackpack.reloadVirtualStorages();
-            sender.sendMessage(ChatColor.GREEN + "Updating player inventories...");
-            boolean success = virtualBackpack.updatePlayerInventories();
-            if (success) {
-                sender.sendMessage(ChatColor.GREEN + "Backpack Permissions have been successfully reloaded");
-            } else {
-                sender.sendMessage(ChatColor.RED + "Failed to reload Virtual Storages. Check console for errors.");
-            }
+            player.sendMessage(Messages.get("noPermission"));
             return true;
         }
 
@@ -61,7 +50,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             }
 
             if (!admin.hasPermission("virtualstorages.admin")) {
-                admin.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
+                admin.sendMessage(Messages.get("noCommandPermission"));
                 return true;
             }
 
@@ -80,22 +69,37 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (command.getName().equalsIgnoreCase("vsreload")) {
+            if (!sender.hasPermission("virtualstorages.admin")) {
+                sender.sendMessage(Messages.get("noCommandPermission"));
+                return true;
+            }
+            virtualStorages.reloadLanguage();
+            sender.sendMessage(Messages.get("reloadDone"));
+            return true;
+        }
+
         return false;
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+    public List<String> onTabComplete(@Nonnull CommandSender sender, @Nonnull Command command, @Nonnull String alias, @Nonnull String[] args) {
+
         List<String> completions = new ArrayList<>();
-        if (command.getName().equalsIgnoreCase("backpackview")) {
-            if (args.length == 1) {
-                for (Player player : sender.getServer().getOnlinePlayers()) {
-                    completions.add(player.getName());
+
+        if (command.getName().equalsIgnoreCase("backpackview") &&
+                sender.hasPermission("virtualstorages.admin") &&
+                args.length == 1) {
+
+            String partial = args[0].toLowerCase();
+            for (Player p : sender.getServer().getOnlinePlayers()) {
+                if (p.getName().toLowerCase().startsWith(partial)) {
+                    completions.add(p.getName());
                 }
             }
-        } else if (args.length == 0) {
-            completions.add("backpack");
-            completions.add("vsreload");
+            return completions;
         }
+
         return completions;
     }
 }

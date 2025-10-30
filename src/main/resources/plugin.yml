@@ -12,10 +12,12 @@ commands:
     description: Opens the virtual backpack inventory.
     usage: /backpack
     aliases: [bp]
-  vsreload:
-    description: Reloads VirtualStorages permissions and configurations.
-    usage: /vsreload
   backpackview:
     description: Allows the player to open another user's inventory.
     usage: /backpackview <PlayerName>
     aliases: [bpview]
+    permission: virtualstorages.admin
+  vsreload:
+    description: Reloads the language file.
+    usage: /vsreload
+    permission: virtualstorages.admin

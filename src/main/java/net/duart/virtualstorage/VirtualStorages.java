@@ -1,5 +1,9 @@
 package net.duart.virtualstorage;
 
+import net.duart.virtualstorage.commands.CommandManager;
+import net.duart.virtualstorage.listener.VirtualBackpack;
+import net.duart.virtualstorage.util.FileHandlers;
+import net.duart.virtualstorage.util.Messages;
 import org.bukkit.ChatColor;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -17,15 +21,15 @@ public final class VirtualStorages extends JavaPlugin {
     @Override
     public void onEnable() {
         cCSender = getServer().getConsoleSender();
-        cCSender.sendMessage(ChatColor.YELLOW + "||   VirtualStorages   ||");
-        cCSender.sendMessage(ChatColor.YELLOW + "||    by DaveDuart     ||");
-        cCSender.sendMessage(ChatColor.YELLOW + "||  Enabled correctly  ||");
+        saveDefaultConfig();
+
+        Messages.init(getConfig());
 
         FileHandlers fileHandlers = new FileHandlers(this);
         virtualBackpack = new VirtualBackpack(this, fileHandlers);
-        CommandManager commandManager = new CommandManager(virtualBackpack);
+        CommandManager commandManager = new CommandManager(virtualBackpack, this);
 
-        List<String> commands = Arrays.asList("backpack", "vsreload", "backpackview");
+        List<String> commands = Arrays.asList("backpack", "vsreload" , "backpackview");
 
         commands.forEach(command -> {
             PluginCommand cmd = Objects.requireNonNull(getCommand(command));
@@ -45,6 +49,15 @@ public final class VirtualStorages extends JavaPlugin {
         } else {
             getLogger().info("VirtualStorages folder detected.");
         }
+
+        cCSender.sendMessage(ChatColor.YELLOW + "||   VirtualStorages   ||");
+        cCSender.sendMessage(ChatColor.YELLOW + "||    by DaveDuart     ||");
+        cCSender.sendMessage(ChatColor.YELLOW + "||  Enabled correctly  ||");
+    }
+
+    public void reloadLanguage() {
+        reloadConfig();
+        Messages.init(getConfig());
     }
 
     @Override
