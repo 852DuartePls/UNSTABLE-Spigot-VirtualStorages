@@ -10,7 +10,7 @@ VirtualStorages is a Minecraft Plugin designed to increase storage capabilities 
 1. **Virtual Backpacks:** Players can access additional storage slots inside a virtual backpack.
 2. **Permission:** Permissions to control who can use virtual backpacks and to manipulate the number of backpacks a player can have.
 3. **Admin Control:** Admins can inspect and manipulate the contents of every backpack created by players using `/backpackview <player>`.
-4. **Data Persistence:** The data is stored in a YAML file located inside the Data Folder of the plugin.
+4. **Data Persistence:** The data is stored in file located inside the Data Folder of the plugin.
 ---
 
 **Installation:**
@@ -25,7 +25,7 @@ VirtualStorages is a Minecraft Plugin designed to increase storage capabilities 
 
 - **/backpack:** Opens the virtual backpack for players who have the appropriate permission.
 - **/backpackview <player>:** Allows the player to visualize and interact with another player's backpack.
-- **/vsreload:** Reloads permissions for VirtualStorages. Requires admin privileges.
+- **/vsreload:** Reloads messages from the config.yml file for VirtualStorages. Requires admin privileges.
 
 ---
 
@@ -36,17 +36,6 @@ VirtualStorages is a Minecraft Plugin designed to increase storage capabilities 
 
 > [!IMPORTANT]
 > You need a permissions plugin to do this .
----
-
-**Credits:**  
-- Developer: DaveDuart
-- Spigot Page: [852Duarte](https://www.spigotmc.org/members/852duarte.637824/)
-
----
-
-**Support:**  
-For support add me on discord, username: 852Duarte.
-
 ---
 
 **License:**  
@@ -61,7 +50,7 @@ Your feedback is valuable! Feel free to submit bug reports, feature requests, or
 
 #### **TODO:**
 - [x] Add a way to see other players' backpacks in-game
-- [ ] Make `/vsreload` no longer necessary
+- [x] Make `/vsreload` no longer necessary
 - [ ] Add option for Database storage
 
 --- 
