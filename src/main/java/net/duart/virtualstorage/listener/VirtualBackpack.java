@@ -12,7 +12,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
@@ -25,9 +24,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -38,6 +35,8 @@ public class VirtualBackpack implements Listener {
     private final ConcurrentHashMap<UUID, Integer> currentPageIndexMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ArrayList<Inventory>> backpacks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Player, Player> adminToTargetMap = new ConcurrentHashMap<>();
+    private final Set<Inventory> backpackInventories = new HashSet<>();
+
     private final FileHandlers fileHandlers;
     private final NamespacedKey NAV_KEY;
 
@@ -74,7 +73,7 @@ public class VirtualBackpack implements Listener {
                 plugin.getLogger().log(Level.SEVERE, "Error loading/saving backpack for player " + player.getName(), e);
             }
         }).thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
-            ensurePageCountMatchesPermissions(playerId, pages);
+            ensurePageCountMatchesPermissions(playerId, pages, false);
             refreshPagesAndNavigation(pages);
             player.openInventory(pages.get(0));
             adminToTargetMap.remove(player);
@@ -119,14 +118,14 @@ public class VirtualBackpack implements Listener {
                 plugin.getLogger().log(Level.SEVERE, "Error handling backpack files for player " + target.getName(), e);
             }
         }).thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
-            ensurePageCountMatchesPermissions(targetId, targetPages);
+            ensurePageCountMatchesPermissions(targetId, targetPages, true);
             refreshPagesAndNavigation(targetPages);
             adminToTargetMap.put(admin, target);
             admin.openInventory(targetPages.get(0));
         }));
     }
 
-    private void ensurePageCountMatchesPermissions(UUID playerId,@Nonnull ArrayList<Inventory> pages) {
+    private void ensurePageCountMatchesPermissions(UUID playerId, @Nonnull ArrayList<Inventory> pages, boolean isAdmin) {
         int allowedPages = getMaxPages(playerId);
         int currentPages = pages.size();
 
@@ -134,6 +133,7 @@ public class VirtualBackpack implements Listener {
             for (int i = currentPages; i < allowedPages; i++) {
                 Inventory page = Bukkit.createInventory(null, 54, buildTitle(i + 1, pages.size()));
                 pages.add(page);
+                registerBackpackInventory(page);
             }
 
             List<ItemStack> overflowItems = fileHandlers.loadOverflowItems(playerId);
@@ -167,6 +167,7 @@ public class VirtualBackpack implements Listener {
 
             while (pages.size() > allowedPages) {
                 Inventory lastPage = pages.remove(pages.size() - 1);
+                unregisterBackpackInventory(lastPage);
                 for (ItemStack item : lastPage.getContents()) {
                     if (item != null && !isNavigationItem(item)) {
                         Inventory lastAllowed = pages.get(pages.size() - 1);
@@ -189,11 +190,30 @@ public class VirtualBackpack implements Listener {
             }
         }
 
+        if (isAdmin) {
+            List<ItemStack> overflowItems = fileHandlers.loadOverflowItems(playerId);
+            while (!overflowItems.isEmpty()) {
+                Inventory overflowPage = Bukkit.createInventory(null, 54, buildTitle(pages.size() + 1, "OVERFLOW"));
+                registerBackpackInventory(overflowPage);
+
+                for (ItemStack item : new ArrayList<>(overflowItems)) {
+                    int slot = findFirstFreeNonNavSlot(overflowPage, false);
+                    if (slot != -1) {
+                        overflowPage.setItem(slot, item);
+                        overflowItems.remove(item);
+                    } else break;
+                }
+
+                pages.add(overflowPage);
+            }
+        }
+
         for (int i = 0; i < pages.size(); i++) {
             Inventory oldPage = pages.get(i);
             Inventory newPage = Bukkit.createInventory(null, 54, buildTitle(i + 1, pages.size()));
             newPage.setContents(oldPage.getContents());
             pages.set(i, newPage);
+            registerBackpackInventory(newPage);
         }
 
         addNavigationItems(pages);
@@ -230,6 +250,7 @@ public class VirtualBackpack implements Listener {
         for (int i = 0; i < maxPages; i++) {
             Inventory page = Bukkit.createInventory(null, 54, buildTitle(i + 1, maxPages));
             pages.add(page);
+            registerBackpackInventory(page);
         }
         addNavigationItems(pages);
         return pages;
@@ -246,6 +267,7 @@ public class VirtualBackpack implements Listener {
         }
         return 1;
     }
+
     public void createBackup() {
         File dataFolder = plugin.getDataFolder();
         File backupFolder = new File(dataFolder, "backup");
@@ -392,10 +414,9 @@ public class VirtualBackpack implements Listener {
     public void onInventoryClick(@Nonnull InventoryClickEvent event) {
         Player player = (Player) event.getWhoClicked();
         UUID playerId = player.getUniqueId();
-        InventoryView inventoryView = event.getView();
-        String inventoryTitle = inventoryView.getTitle();
+        Inventory clickedInventory = event.getClickedInventory();
 
-        if (!inventoryTitle.contains("Backpack - Page")) {
+        if (clickedInventory == null || !isBackpackInventory(clickedInventory)) {
             return;
         }
 
@@ -461,28 +482,59 @@ public class VirtualBackpack implements Listener {
     public void onInventoryClose(@Nonnull InventoryCloseEvent event) {
         Player player = (Player) event.getPlayer();
         UUID playerId = player.getUniqueId();
-        InventoryView inventoryView = event.getView();
-        String inventoryTitle = inventoryView.getTitle();
+        Inventory closedInventory = event.getInventory();
 
-        if (!inventoryTitle.contains("Backpack - Page")) {
+        if (!isBackpackInventory(closedInventory)) {
             return;
         }
 
         UUID targetId = playerId;
+        boolean isAdmin = false;
         if (adminToTargetMap.containsKey(player)) {
             targetId = adminToTargetMap.get(player).getUniqueId();
+            isAdmin = true;
         }
 
         ArrayList<Inventory> pages = getBackpackPages(targetId);
         int currentPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
 
-        Inventory closedInventory = event.getInventory();
         if (currentPageIndex >= pages.size() || !closedInventory.equals(pages.get(currentPageIndex))) {
             return;
         }
 
         pages.set(currentPageIndex, closedInventory);
-        fileHandlers.saveBackpackInventoryForTarget(targetId, pages);
+
+        if (isAdmin) {
+            int maxPages = getMaxPages(targetId);
+            List<ItemStack> overflowItems = new ArrayList<>();
+
+            for (int i = maxPages; i < pages.size(); i++) {
+                for (ItemStack item : pages.get(i).getContents()) {
+                    if (item != null && !isNavigationItem(item)) {
+                        overflowItems.add(item.clone());
+                    }
+                }
+            }
+
+            if (!overflowItems.isEmpty()) {
+                fileHandlers.saveOverflowItems(targetId, overflowItems);
+            } else {
+                try {
+                    Files.deleteIfExists(Paths.get(plugin.getDataFolder().getPath(), targetId + ".overflow.yml.gz"));
+                } catch (IOException e) {
+                    plugin.getLogger().warning("Failed to delete overflow file for player: " + targetId);
+                }
+            }
+
+            ArrayList<Inventory> allowedPages = new ArrayList<>();
+            for (int i = 0; i < maxPages && i < pages.size(); i++) {
+                allowedPages.add(pages.get(i));
+            }
+            fileHandlers.saveBackpackInventoryForTarget(targetId, allowedPages);
+        } else {
+            fileHandlers.saveBackpackInventoryForTarget(targetId, pages);
+        }
+
         currentPageIndexMap.put(targetId, 0);
     }
 
@@ -530,7 +582,19 @@ public class VirtualBackpack implements Listener {
         return false;
     }
 
-    private String buildTitle(int page, int maxPages) {
+    private String buildTitle(int page, Object maxPages) {
         return Messages.get("title", "%page%", String.valueOf(page), "%maxpages%", String.valueOf(maxPages));
+    }
+
+    private void registerBackpackInventory(@Nonnull Inventory inventory) {
+        backpackInventories.add(inventory);
+    }
+
+    private boolean isBackpackInventory(@Nonnull Inventory inventory) {
+        return backpackInventories.contains(inventory);
+    }
+
+    private void unregisterBackpackInventory(@Nonnull Inventory inventory) {
+        backpackInventories.remove(inventory);
     }
 }

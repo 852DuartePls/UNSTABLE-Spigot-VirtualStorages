@@ -4,20 +4,44 @@ import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import javax.annotation.Nonnull;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 public class Messages {
     private static FileConfiguration config;
+    private static final Map<String, String> cache = new HashMap<>();
 
     public static void init(FileConfiguration config) {
         Messages.config = config;
+        reload();
+    }
+
+    public static void reload() {
+        cache.clear();
+
+        if (config != null && config.isConfigurationSection("texts")) {
+            org.bukkit.configuration.ConfigurationSection section = config.getConfigurationSection("texts");
+            if (section != null) {
+                Set<String> keys = section.getKeys(false);
+                for (String key : keys) {
+                    String raw = config.getString("texts." + key);
+                    if (raw != null) {
+                        cache.put(key, ChatColor.translateAlternateColorCodes('&', raw));
+                    }
+                }
+            }
+        }
     }
 
     public static String get(@Nonnull String path, Object... replacements) {
-        String raw = config.getString("messages." + path);
+        String raw = cache.get(path);
+
         if (raw == null) {
-            raw = getDefault(path);
+            raw = ChatColor.translateAlternateColorCodes('&', getDefault(path));
+            cache.put(path, raw);
         }
-        raw = ChatColor.translateAlternateColorCodes('&', raw);
+
         for (int i = 0; i < replacements.length; i += 2) {
             raw = raw.replace(String.valueOf(replacements[i]), String.valueOf(replacements[i + 1]));
         }
