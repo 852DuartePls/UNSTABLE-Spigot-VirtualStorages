@@ -8,9 +8,8 @@ import org.bukkit.ChatColor;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+
 import org.bukkit.command.ConsoleCommandSender;
 
 public final class VirtualStorages extends JavaPlugin {
@@ -63,9 +62,16 @@ public final class VirtualStorages extends JavaPlugin {
     @Override
     public void onDisable() {
         if (virtualBackpack != null) {
-            virtualBackpack.saveAllBackpacks();
-            virtualBackpack.createBackup();
+            try {
+                virtualBackpack.saveAllBackpacks();
+                virtualBackpack.createBackup();
+                virtualBackpack.unloadAllBackpacks();
+                getLogger().info("All backpacks saved and unloaded successfully");
+            } catch (Exception e) {
+                getLogger().severe("Error during shutdown: " + e.getMessage());
+            }
         }
+
         cCSender.sendMessage(ChatColor.YELLOW + "||   VirtualStorages   ||");
         cCSender.sendMessage(ChatColor.YELLOW + "||      Disabled       ||");
     }

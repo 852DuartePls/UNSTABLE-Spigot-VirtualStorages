@@ -17,9 +17,7 @@ import org.bukkit.util.io.BukkitObjectOutputStream;
 import javax.annotation.Nonnull;
 import java.io.*;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.zip.GZIPInputStream;
@@ -35,72 +33,98 @@ public class FileHandlers {
         NAV_KEY = new NamespacedKey(plugin, "navarrow");
     }
 
-    public void saveBackpackInventory(@Nonnull Player player,@Nonnull UUID playerId,@Nonnull ArrayList<Inventory> pages) {
-        File playerFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml.gz");
-        YamlConfiguration playerConfig = new YamlConfiguration();
-        try {
-            fileLock.lock();
-            for (int i = 0; i < pages.size(); i++) {
-                Inventory page = pages.get(i);
-                for (int slot = 0; slot < page.getSize(); slot++) {
-                    ItemStack item = page.getItem(slot);
-                    if (item != null && isNotNavigationItem(item)) {
-                        playerConfig.set("pages." + i + ".slot" + slot, item);
-                    } else {
-                        playerConfig.set("pages." + i + ".slot" + slot, null);
-                    }
-                }
-            }
-            File tempFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".tmp.yml");
-            playerConfig.save(tempFile);
-            try (FileOutputStream fileOutputStream = new FileOutputStream(playerFile);
-                 GZIPOutputStream gzipOutputStream = new GZIPOutputStream(fileOutputStream)) {
-                Files.copy(tempFile.toPath(), gzipOutputStream);
-            }
-            Files.delete(tempFile.toPath());
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
-        } finally {
-            fileLock.unlock();
-        }
+    public record BackpackData(Map<Integer, Map<Integer, ItemStack>> pages, int pageCount) { }
+
+    /* REGULAR SAVING */
+
+    public void saveBackpackInventory(@Nonnull Player player, @Nonnull UUID playerId, @Nonnull ArrayList<Inventory> pages) {
+        savePlayerBackpackAtomic(player.getName(), playerId, pages);
     }
 
     public void saveBackpackInventoryForTarget(UUID targetId, ArrayList<Inventory> pages) {
         Player targetPlayer = Bukkit.getPlayer(targetId);
         if (targetPlayer == null) {
-            plugin.getLogger().warning("Target player not found: " + targetId);
-            return;
+            String playerName;
+            File dataFolder = plugin.getDataFolder();
+            File[] files = dataFolder.listFiles((dir, name) ->
+                    name.contains(targetId.toString()) && (name.endsWith(".yml.gz") || name.endsWith(".yml"))
+            );
+
+            if (files != null && files.length > 0) {
+                String fileName = files[0].getName();
+                playerName = fileName.substring(0, fileName.indexOf(" - "));
+            } else {
+                plugin.getLogger().warning("Target player not found and no existing file: " + targetId);
+                return;
+            }
+
+            savePlayerBackpackAtomic(playerName, targetId, pages);
+        } else {
+            savePlayerBackpackAtomic(targetPlayer.getName(), targetId, pages);
         }
-        File targetFile = new File(plugin.getDataFolder(), targetPlayer.getName() + " - " + targetId + ".yml.gz");
+    }
+
+    private void savePlayerBackpackAtomic(String playerName, UUID playerId, @Nonnull ArrayList<Inventory> pages) {
+        File playerFile = new File(plugin.getDataFolder(), playerName + " - " + playerId + ".yml.gz");
+        File tempFile = new File(plugin.getDataFolder(), playerName + " - " + playerId + ".tmp.yml.gz");
+
         YamlConfiguration targetConfig = new YamlConfiguration();
-        try {
-            fileLock.lock();
-            for (int i = 0; i < pages.size(); i++) {
-                Inventory page = pages.get(i);
-                for (int slot = 0; slot < page.getSize(); slot++) {
-                    ItemStack item = page.getItem(slot);
-                    if (item != null && isNotNavigationItem(item)) {
-                        targetConfig.set("pages." + i + ".slot" + slot, item);
-                    } else {
-                        targetConfig.set("pages." + i + ".slot" + slot, null);
-                    }
+        for (int i = 0; i < pages.size(); i++) {
+            Inventory page = pages.get(i);
+            for (int slot = 0; slot < page.getSize(); slot++) {
+                ItemStack item = page.getItem(slot);
+                if (item != null && isNotNavigationItem(item)) {
+                    targetConfig.set("pages." + i + ".slot" + slot, item);
+                } else {
+                    targetConfig.set("pages." + i + ".slot" + slot, null);
                 }
             }
-            File tempFile = new File(plugin.getDataFolder(), targetPlayer.getName() + " - " + targetId + ".tmp.yml");
-            targetConfig.save(tempFile);
-            try (FileOutputStream fileOutputStream = new FileOutputStream(targetFile);
-                 GZIPOutputStream gzipOutputStream = new GZIPOutputStream(fileOutputStream)) {
-                Files.copy(tempFile.toPath(), gzipOutputStream);
+        }
+        String yamlContent = targetConfig.saveToString();
+
+        byte[] compressedData;
+        try {
+            ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
+            try (GZIPOutputStream gzipOutputStream = new GZIPOutputStream(byteOutput);
+                 OutputStreamWriter outputWriter = new OutputStreamWriter(gzipOutputStream)) {
+                outputWriter.write(yamlContent);
+                outputWriter.flush();
+                gzipOutputStream.finish();
             }
-            Files.delete(tempFile.toPath());
+            compressedData = byteOutput.toByteArray();
         } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for target " + targetId, e);
+            plugin.getLogger().log(Level.SEVERE, "Error compressing backpack data for player " + playerId, e);
+            return;
+        }
+
+        try {
+            fileLock.lock();
+            try (FileOutputStream fileOutputStream = new FileOutputStream(tempFile)) {
+                fileOutputStream.write(compressedData);
+                fileOutputStream.flush();
+                fileOutputStream.getFD().sync();
+            }
+            Files.move(tempFile.toPath(), playerFile.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Error saving backpack YAML for player " + playerId, e);
+            if (tempFile.exists()) {
+                try {
+                    Files.delete(tempFile.toPath());
+                } catch (IOException ex) {
+                    plugin.getLogger().log(Level.WARNING, "Failed to delete temp file", ex);
+                }
+            }
         } finally {
             fileLock.unlock();
         }
     }
 
-    public void loadBackpackFromYAML(UUID playerId, ArrayList<Inventory> pages,@Nonnull File file) {
+    public BackpackData loadBackpackData(UUID playerId, @Nonnull File file) {
+        Map<Integer, Map<Integer, ItemStack>> pagesData = new HashMap<>();
+        int storedPageCount = 0;
+
         try {
             fileLock.lock();
             YamlConfiguration playerConfig;
@@ -116,58 +140,85 @@ public class FileHandlers {
             }
 
             ConfigurationSection pagesSection = playerConfig.getConfigurationSection("pages");
-            int storedPageCount = 0;
             if (pagesSection != null) {
                 for (String key : pagesSection.getKeys(false)) {
                     try {
-                        int idx = Integer.parseInt(key);
-                        if (idx + 1 > storedPageCount) storedPageCount = idx + 1;
+                        int pageIdx = Integer.parseInt(key);
+                        if (pageIdx + 1 > storedPageCount) storedPageCount = pageIdx + 1;
+
+                        ConfigurationSection pageSection = playerConfig.getConfigurationSection("pages." + pageIdx);
+                        if (pageSection != null) {
+                            Map<Integer, ItemStack> pageItems = new HashMap<>();
+                            for (String slotKey : pageSection.getKeys(false)) {
+                                ItemStack item = pageSection.getItemStack(slotKey);
+                                if (item != null) {
+                                    int slotIndex = Integer.parseInt(slotKey.replace("slot", ""));
+                                    pageItems.put(slotIndex, item);
+                                }
+                            }
+                            pagesData.put(pageIdx, pageItems);
+                        }
                     } catch (NumberFormatException ignored) {}
                 }
             }
-
-            if (storedPageCount > pages.size()) {
-                for (int i = pages.size(); i < storedPageCount; i++) {
-                    Inventory page = Bukkit.createInventory(null, 54, "§9◆ Backpack - Page " + (i + 1) + " of " + storedPageCount + " ◆");
-                    pages.add(page);
-                }
-            }
-
-            for (int i = 0; i < pages.size(); i++) {
-                Inventory page = pages.get(i);
-                ConfigurationSection pageSection = playerConfig.getConfigurationSection("pages." + i);
-                if (pageSection != null) {
-                    for (String key : pageSection.getKeys(false)) {
-                        ItemStack item = pageSection.getItemStack(key);
-                        if (item != null) {
-                            int slotIndex = Integer.parseInt(key.replace("slot", ""));
-                            if (slotIndex >= 0 && slotIndex < page.getSize()) {
-                                page.setItem(slotIndex, item);
-                            }
-                        }
-                    }
-                }
-            }
         } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Error loading backpack YAML for player " + playerId, e);
+            plugin.getLogger().log(Level.SEVERE, "Error loading backpack data for player " + playerId, e);
         } finally {
             fileLock.unlock();
         }
+
+        return new BackpackData(pagesData, storedPageCount);
     }
 
-    public void saveOverflowItems(UUID playerId,@Nonnull List<ItemStack> overflowItems) {
+    /* OVERFLOW */
+
+    public void saveOverflowItems(UUID playerId, @Nonnull List<ItemStack> overflowItems) {
         if (overflowItems.isEmpty()) return;
 
         File overflowFile = new File(plugin.getDataFolder(), playerId + "-overflow-" + ".yml.gz");
-        try (FileOutputStream fos = new FileOutputStream(overflowFile);
-             GZIPOutputStream gos = new GZIPOutputStream(fos);
-             BukkitObjectOutputStream oos = new BukkitObjectOutputStream(gos)) {
-            oos.writeInt(overflowItems.size());
-            for (ItemStack item : overflowItems) {
-                oos.writeObject(item);
+        File tempFile = new File(plugin.getDataFolder(), playerId + "-overflow-" + ".tmp.yml.gz");
+
+        byte[] serializedData;
+        try {
+            ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
+            try (GZIPOutputStream gos = new GZIPOutputStream(byteOutput);
+                 BukkitObjectOutputStream oos = new BukkitObjectOutputStream(gos)) {
+
+                oos.writeInt(overflowItems.size());
+                for (ItemStack item : overflowItems) {
+                    oos.writeObject(item);
+                }
+
+                oos.flush();
+                gos.finish();
             }
+            serializedData = byteOutput.toByteArray();
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Error serializing overflow items for " + playerId, e);
+            return;
+        }
+
+        try {
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                fos.write(serializedData);
+                fos.flush();
+                fos.getFD().sync();
+            }
+
+            Files.move(tempFile.toPath(), overflowFile.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Error saving overflow items for " + playerId, e);
+
+            if (tempFile.exists()) {
+                try {
+                    Files.delete(tempFile.toPath());
+                } catch (IOException ex) {
+                    plugin.getLogger().log(Level.WARNING, "Failed to delete temp overflow file", ex);
+                }
+            }
         }
     }
 
@@ -196,6 +247,8 @@ public class FileHandlers {
 
         return overflowItems;
     }
+
+    /* HELPER */
 
     private boolean isNotNavigationItem(ItemStack item) {
         if (item == null || item.getType() != Material.ARROW) return true;

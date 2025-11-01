@@ -32,20 +32,29 @@ import java.util.logging.Level;
 public class VirtualBackpack implements Listener {
 
     private final Plugin plugin;
+
     private final ConcurrentHashMap<UUID, Integer> currentPageIndexMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ArrayList<Inventory>> backpacks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Player, Player> adminToTargetMap = new ConcurrentHashMap<>();
+
+    private final Set<Player> playersWithOpenBackpack = new HashSet<>();
+    private final Map<Player, UUID> adminViewers = new HashMap<>();
     private final Set<Inventory> backpackInventories = new HashSet<>();
 
     private final FileHandlers fileHandlers;
     private final NamespacedKey NAV_KEY;
 
+    private static final int NAV_PREV_SLOT = 45;
+    private static final int NAV_NEXT_SLOT = 53;
+    private static final int INVENTORY_SIZE = 54;
+
     public VirtualBackpack(Plugin plugin, FileHandlers fileHandlers) {
         this.plugin = plugin;
         this.fileHandlers = fileHandlers;
-        NAV_KEY = new NamespacedKey(plugin, "nav");
+        NAV_KEY = new NamespacedKey(plugin, "navarrow");
     }
 
+    /* OPEN BACKPACK HANDLERS */
     public void openBackpack(@Nonnull Player player) {
         UUID playerId = player.getUniqueId();
 
@@ -55,27 +64,56 @@ public class VirtualBackpack implements Listener {
         }
 
         currentPageIndexMap.put(playerId, 0);
-        ArrayList<Inventory> pages = getBackpackPages(playerId);
+        markBackpackOpen(player);
 
-        CompletableFuture.runAsync(() -> {
-            File gzippedFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml.gz");
-            File yamlFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml");
+        File gzippedFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml.gz");
+        File yamlFile = new File(plugin.getDataFolder(), player.getName() + " - " + playerId + ".yml");
+
+        CompletableFuture.supplyAsync(() -> {
+            FileHandlers.BackpackData data = null;
 
             try {
                 if (gzippedFile.exists()) {
-                    fileHandlers.loadBackpackFromYAML(playerId, pages, gzippedFile);
+                    data = fileHandlers.loadBackpackData(playerId, gzippedFile);
                 } else if (yamlFile.exists() || !gzippedFile.exists()) {
-                    fileHandlers.loadBackpackFromYAML(playerId, pages, yamlFile);
-                } else {
-                    fileHandlers.saveBackpackInventory(player, playerId, pages);
+                    data = fileHandlers.loadBackpackData(playerId, yamlFile);
                 }
             } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Error loading/saving backpack for player " + player.getName(), e);
+                plugin.getLogger().log(Level.SEVERE, "Error loading backpack for player " + player.getName(), e);
             }
-        }).thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
+
+            return data;
+
+        }).thenAccept(data -> Bukkit.getScheduler().runTask(plugin, () -> {
+            ArrayList<Inventory> pages = backpacks.computeIfAbsent(playerId, k -> new ArrayList<>());
+
+            pages.clear();
+
+            if (data != null && data.pageCount() > 0) {
+                for (int i = 0; i < data.pageCount(); i++) {
+                    Inventory page = Bukkit.createInventory(null, INVENTORY_SIZE, buildTitle(i + 1, data.pageCount()));
+
+                    Map<Integer, ItemStack> pageItems = data.pages().get(i);
+                    if (pageItems != null) {
+                        for (Map.Entry<Integer, ItemStack> entry : pageItems.entrySet()) {
+                            int slot = entry.getKey();
+                            if (slot >= 0 && slot < page.getSize()) {
+                                page.setItem(slot, entry.getValue());
+                            }
+                        }
+                    }
+
+                    pages.add(page);
+                    registerBackpackInventory(page);
+                }
+            }
+
             ensurePageCountMatchesPermissions(playerId, pages, false);
             refreshPagesAndNavigation(pages);
-            player.openInventory(pages.get(0));
+
+            if (!pages.isEmpty()) {
+                player.openInventory(pages.get(0));
+            }
             adminToTargetMap.remove(player);
         }));
     }
@@ -102,314 +140,62 @@ public class VirtualBackpack implements Listener {
             return;
         }
 
-        ArrayList<Inventory> targetPages = getBackpackPages(targetId);
+        markAdminViewing(admin, targetId);
 
         File gzippedFile = new File(plugin.getDataFolder(), target.getName() + " - " + targetId + ".yml.gz");
         File yamlFile = new File(plugin.getDataFolder(), target.getName() + " - " + targetId + ".yml");
 
-        CompletableFuture.runAsync(() -> {
+        CompletableFuture.supplyAsync(() -> {
+            FileHandlers.BackpackData data = null;
+
             try {
                 if (gzippedFile.exists()) {
-                    fileHandlers.loadBackpackFromYAML(targetId, targetPages, gzippedFile);
+                    data = fileHandlers.loadBackpackData(targetId, gzippedFile);
                 } else if (yamlFile.exists()) {
-                    fileHandlers.loadBackpackFromYAML(targetId, targetPages, yamlFile);
+                    data = fileHandlers.loadBackpackData(targetId, yamlFile);
                 }
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "Error handling backpack files for player " + target.getName(), e);
             }
-        }).thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
-            ensurePageCountMatchesPermissions(targetId, targetPages, true);
-            refreshPagesAndNavigation(targetPages);
+
+            return data;
+
+        }).thenAccept(data -> Bukkit.getScheduler().runTask(plugin, () -> {
+            ArrayList<Inventory> pages = backpacks.computeIfAbsent(targetId, k -> new ArrayList<>());
+
+            pages.clear();
+
+            if (data != null && data.pageCount() > 0) {
+                for (int i = 0; i < data.pageCount(); i++) {
+                    Inventory page = Bukkit.createInventory(null, INVENTORY_SIZE, buildTitle(i + 1, data.pageCount()));
+
+                    Map<Integer, ItemStack> pageItems = data.pages().get(i);
+                    if (pageItems != null) {
+                        for (Map.Entry<Integer, ItemStack> entry : pageItems.entrySet()) {
+                            int slot = entry.getKey();
+                            if (slot >= 0 && slot < page.getSize()) {
+                                page.setItem(slot, entry.getValue());
+                            }
+                        }
+                    }
+
+                    pages.add(page);
+                    registerBackpackInventory(page);
+                }
+            }
+
+            ensurePageCountMatchesPermissions(targetId, pages, true);
+            refreshPagesAndNavigation(pages);
+
             adminToTargetMap.put(admin, target);
-            admin.openInventory(targetPages.get(0));
+
+            if (!pages.isEmpty()) {
+                admin.openInventory(pages.get(0));
+            }
         }));
     }
 
-    private void ensurePageCountMatchesPermissions(UUID playerId, @Nonnull ArrayList<Inventory> pages, boolean isAdmin) {
-        int allowedPages = getMaxPages(playerId);
-        int currentPages = pages.size();
-
-        if (currentPages < allowedPages) {
-            for (int i = currentPages; i < allowedPages; i++) {
-                Inventory page = Bukkit.createInventory(null, 54, buildTitle(i + 1, pages.size()));
-                pages.add(page);
-                registerBackpackInventory(page);
-            }
-
-            List<ItemStack> overflowItems = fileHandlers.loadOverflowItems(playerId);
-            if (!overflowItems.isEmpty()) {
-                Inventory lastPage = pages.get(pages.size() - 1);
-                for (ItemStack item : new ArrayList<>(overflowItems)) {
-                    int slot = findFirstFreeNonNavSlot(lastPage, false);
-                    if (slot != -1) {
-                        lastPage.setItem(slot, item);
-                        overflowItems.remove(item);
-                    } else break;
-                }
-
-                if (overflowItems.isEmpty()) {
-                    try {
-                        Files.deleteIfExists(Paths.get(plugin.getDataFolder().getPath(), playerId + ".overflow.yml.gz"));
-                    } catch (IOException e) {
-                        plugin.getLogger().warning("Failed to delete overflow file for player: " + playerId);
-                    }
-                } else {
-                    fileHandlers.saveOverflowItems(playerId, overflowItems);
-                }
-
-                Player player = Bukkit.getPlayer(playerId);
-                if (player != null && player.isOnline()) {
-                    player.sendMessage(Messages.get("itemsRecovered"));
-                }
-            }
-        } else if (currentPages > allowedPages) {
-            List<ItemStack> overflowItems = new ArrayList<>();
-
-            while (pages.size() > allowedPages) {
-                Inventory lastPage = pages.remove(pages.size() - 1);
-                unregisterBackpackInventory(lastPage);
-                for (ItemStack item : lastPage.getContents()) {
-                    if (item != null && !isNavigationItem(item)) {
-                        Inventory lastAllowed = pages.get(pages.size() - 1);
-                        int freeSlot = findFirstFreeNonNavSlot(lastAllowed, true);
-                        if (freeSlot != -1) {
-                            lastAllowed.setItem(freeSlot, item);
-                        } else {
-                            overflowItems.add(item.clone());
-                        }
-                    }
-                }
-            }
-
-            if (!overflowItems.isEmpty()) {
-                fileHandlers.saveOverflowItems(playerId, overflowItems);
-                Player player = Bukkit.getPlayer(playerId);
-                if (player != null && player.isOnline()) {
-                    player.sendMessage(Messages.get("itemsOverflowed"));
-                }
-            }
-        }
-
-        if (isAdmin) {
-            List<ItemStack> overflowItems = fileHandlers.loadOverflowItems(playerId);
-            while (!overflowItems.isEmpty()) {
-                Inventory overflowPage = Bukkit.createInventory(null, 54, buildTitle(pages.size() + 1, "OVERFLOW"));
-                registerBackpackInventory(overflowPage);
-
-                for (ItemStack item : new ArrayList<>(overflowItems)) {
-                    int slot = findFirstFreeNonNavSlot(overflowPage, false);
-                    if (slot != -1) {
-                        overflowPage.setItem(slot, item);
-                        overflowItems.remove(item);
-                    } else break;
-                }
-
-                pages.add(overflowPage);
-            }
-        }
-
-        for (int i = 0; i < pages.size(); i++) {
-            Inventory oldPage = pages.get(i);
-            Inventory newPage = Bukkit.createInventory(null, 54, buildTitle(i + 1, pages.size()));
-            newPage.setContents(oldPage.getContents());
-            pages.set(i, newPage);
-            registerBackpackInventory(newPage);
-        }
-
-        addNavigationItems(pages);
-    }
-
-    private int findFirstFreeNonNavSlot(@Nonnull Inventory inv, boolean allowSlot53IfOccupied) {
-        for (int s = 0; s < inv.getSize(); s++) {
-            if (s == 45) continue;
-
-            ItemStack it = inv.getItem(s);
-
-            if (s == 53) {
-                if (isNavigationItem(it)) continue;
-
-                if (it == null) return s;
-
-                if (allowSlot53IfOccupied) return s;
-                continue;
-            }
-
-            if (it == null) return s;
-        }
-        return -1;
-    }
-
-    private ArrayList<Inventory> getBackpackPages(UUID playerId) {
-        int maxPages = getMaxPages(playerId);
-        return backpacks.computeIfAbsent(playerId, k -> createNewBackpackPages(maxPages));
-    }
-
-    @Nonnull
-    private ArrayList<Inventory> createNewBackpackPages(int maxPages) {
-        ArrayList<Inventory> pages = new ArrayList<>();
-        for (int i = 0; i < maxPages; i++) {
-            Inventory page = Bukkit.createInventory(null, 54, buildTitle(i + 1, maxPages));
-            pages.add(page);
-            registerBackpackInventory(page);
-        }
-        addNavigationItems(pages);
-        return pages;
-    }
-
-    private int getMaxPages(UUID playerId) {
-        Player player = Bukkit.getPlayer(playerId);
-        if (player != null) {
-            for (int i = 999; i >= 1; i--) {
-                if (player.hasPermission("virtualstorages.use." + i)) {
-                    return i;
-                }
-            }
-        }
-        return 1;
-    }
-
-    public void createBackup() {
-        File dataFolder = plugin.getDataFolder();
-        File backupFolder = new File(dataFolder, "backup");
-        if (!backupFolder.exists()) {
-            if (!backupFolder.mkdirs()) {
-                plugin.getLogger().log(Level.SEVERE, "Error creating backup directory: " + backupFolder.getAbsolutePath());
-                return;
-            }
-        }
-
-        File[] files = dataFolder.listFiles((dir, name) -> name.endsWith(".yml") || name.endsWith(".yml.gz"));
-        if (files != null) {
-            for (File file : files) {
-                File backupFile = new File(backupFolder, file.getName());
-                try {
-                    Files.copy(file.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                } catch (IOException e) {
-                    plugin.getLogger().log(Level.SEVERE, "Error creating backup for file: " + file.getName(), e);
-                }
-            }
-        }
-    }
-
-    @Nonnull
-    private ItemStack createNavigationItem(String displayName) {
-        ItemStack item = new ItemStack(Material.ARROW);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(displayName);
-            meta.getPersistentDataContainer().set(NAV_KEY, PersistentDataType.BYTE, (byte) 1);
-            item.setItemMeta(meta);
-        }
-        return item;
-    }
-
-    private void addNavigationItems(@Nonnull List<Inventory> pages) {
-        int totalPages = pages.size();
-        UUID playerId = getPlayerIdByInventory(pages);
-
-        for (int i = 0; i < totalPages; i++) {
-            Inventory page = pages.get(i);
-
-            ItemStack cur45 = page.getItem(45);
-            if (i > 0) {
-                if (cur45 == null || isNavigationItem(cur45)) {
-                    page.setItem(45, createNavigationItem(Messages.get("prevArrow")));
-                }
-            } else {
-                if (isNavigationItem(cur45)) page.setItem(45, null);
-            }
-
-            ItemStack cur53 = page.getItem(53);
-            if (i < totalPages - 1) {
-                if (cur53 == null || isNavigationItem(cur53)) {
-                    page.setItem(53, createNavigationItem(Messages.get("nextArrow")));
-                } else {
-                    ItemStack toMove = cur53.clone();
-                    page.setItem(53, null);
-                    handleSlotItem(pages, i, totalPages, playerId, toMove);
-                    page.setItem(53, createNavigationItem(Messages.get("nextArrow")));
-                }
-            } else {
-                if (isNavigationItem(cur53)) page.setItem(53, null);
-            }
-        }
-    }
-
-    private void handleSlotItem(@Nonnull List<Inventory> pages, int pageIndex, int totalPages, UUID playerId) {
-        Inventory sourcePage = pages.get(pageIndex);
-        ItemStack item = sourcePage.getItem(53);
-        if (item == null || isNavigationItem(item)) return;
-
-        for (int j = pageIndex + 1; j < totalPages; j++) {
-            int free = findFirstFreeNonNavSlot(pages.get(j), true);
-            if (free != -1) {
-                pages.get(j).setItem(free, item);
-                return;
-            }
-        }
-
-        if (playerId != null) {
-            List<ItemStack> overflow = new ArrayList<>(fileHandlers.loadOverflowItems(playerId));
-            overflow.add(item);
-            fileHandlers.saveOverflowItems(playerId, overflow);
-        }
-    }
-
-    private void handleSlotItem(List<Inventory> pages, int pageIndex, int totalPages, UUID playerId, ItemStack item) {
-
-        for (int j = pageIndex + 1; j < totalPages; j++) {
-            int free = findFirstFreeNonNavSlot(pages.get(j), true);
-            if (free != -1) {
-                pages.get(j).setItem(free, item);
-                return;
-            }
-        }
-
-        if (playerId != null) {
-            List<ItemStack> overflow = new ArrayList<>(fileHandlers.loadOverflowItems(playerId));
-            overflow.add(item);
-            fileHandlers.saveOverflowItems(playerId, overflow);
-        }
-    }
-
-    private void refreshPagesAndNavigation(@Nonnull ArrayList<Inventory> pages) {
-        int totalPages = pages.size();
-        UUID playerId = getPlayerIdByInventory(pages);
-
-        for (int i = 0; i < totalPages; i++) {
-            Inventory page = pages.get(i);
-
-            if (i < totalPages - 1) {
-                handleSlotItem(pages, i, totalPages, playerId);
-            }
-
-            if (totalPages == 1) {
-                for (int navSlot : new int[]{45, 53}) {
-                    ItemStack navItem = page.getItem(navSlot);
-                    if (isNavigationItem(navItem)) page.setItem(navSlot, null);
-                }
-            } else {
-                if (i > 0) page.setItem(45, createNavigationItem(Messages.get("prevArrow")));
-                if (i < totalPages - 1) page.setItem(53, createNavigationItem(Messages.get("nextArrow")));
-            }
-        }
-    }
-
-    @Nullable
-    private UUID getPlayerIdByInventory(List<Inventory> pages) {
-        for (UUID id : backpacks.keySet()) {
-            if (backpacks.get(id) == pages) return id;
-        }
-        return null;
-    }
-
-    private boolean isNavigationItem(ItemStack item) {
-        if (item == null || item.getType() != Material.ARROW) return false;
-        ItemMeta meta = item.getItemMeta();
-        return meta != null &&
-                meta.getPersistentDataContainer().has(NAV_KEY, PersistentDataType.BYTE);
-    }
-
+    /* EVENTS */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryClick(@Nonnull InventoryClickEvent event) {
         Player player = (Player) event.getWhoClicked();
@@ -438,7 +224,7 @@ public class VirtualBackpack implements Listener {
         if (!isNavigationItem(clickedItem)) return;
 
         int slot = event.getSlot();
-        if (slot != 45 && slot != 53) {
+        if (slot != NAV_PREV_SLOT && slot != NAV_NEXT_SLOT) {
             return;
         }
 
@@ -450,32 +236,12 @@ public class VirtualBackpack implements Listener {
         }
 
         event.setCancelled(true);
-        int direction = slot == 45 ? -1 : 1;
+        int direction = slot == NAV_PREV_SLOT ? -1 : 1;
         changePage(targetId, direction, player);
 
         int updatedPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
         Inventory updatedPage = getBackpackPages(targetId).get(updatedPageIndex);
         Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(updatedPage));
-    }
-
-    private void changePage(UUID targetId, int direction, Player viewer) {
-        ArrayList<Inventory> pages = getBackpackPages(targetId);
-        int currentPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
-        int newPageIndex = currentPageIndex + direction;
-
-        boolean viewerIsAdminViewingTarget = adminToTargetMap.containsKey(viewer) && adminToTargetMap.get(viewer).getUniqueId().equals(targetId);
-
-        int allowedMax;
-        if (viewerIsAdminViewingTarget) {
-            allowedMax = pages.size();
-        } else {
-            allowedMax = getMaxPages(targetId);
-            if (allowedMax <= 0) allowedMax = 1;
-        }
-
-        if (newPageIndex >= 0 && newPageIndex < allowedMax) {
-            currentPageIndexMap.put(targetId, newPageIndex);
-        }
     }
 
     @EventHandler
@@ -488,11 +254,15 @@ public class VirtualBackpack implements Listener {
             return;
         }
 
-        UUID targetId = playerId;
+        markBackpackClosed(player);
+
+        UUID targetId;
         boolean isAdmin = false;
         if (adminToTargetMap.containsKey(player)) {
             targetId = adminToTargetMap.get(player).getUniqueId();
             isAdmin = true;
+        } else {
+            targetId = playerId;
         }
 
         ArrayList<Inventory> pages = getBackpackPages(targetId);
@@ -520,7 +290,7 @@ public class VirtualBackpack implements Listener {
                 fileHandlers.saveOverflowItems(targetId, overflowItems);
             } else {
                 try {
-                    Files.deleteIfExists(Paths.get(plugin.getDataFolder().getPath(), targetId + ".overflow.yml.gz"));
+                    Files.deleteIfExists(Paths.get(plugin.getDataFolder().getPath(), targetId + "-overflow-.yml.gz"));
                 } catch (IOException e) {
                     plugin.getLogger().warning("Failed to delete overflow file for player: " + targetId);
                 }
@@ -536,6 +306,523 @@ public class VirtualBackpack implements Listener {
         }
 
         currentPageIndexMap.put(targetId, 0);
+
+        boolean someoneElseViewing = false;
+        for (Inventory inv : pages) {
+            if (!inv.getViewers().isEmpty()) {
+                for (org.bukkit.entity.HumanEntity viewer : inv.getViewers()) {
+                    if (!viewer.getUniqueId().equals(player.getUniqueId())) {
+                        someoneElseViewing = true;
+                        break;
+                    }
+                }
+            }
+            if (someoneElseViewing) break;
+        }
+
+        if (!someoneElseViewing) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!isBackpackOpen(targetId)) {
+                    unloadBackpack(targetId);
+                }
+            }, 1L);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(@Nonnull org.bukkit.event.player.PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        markBackpackClosed(player);
+
+        if (backpacks.containsKey(playerId)) {
+            ArrayList<Inventory> pages = backpacks.get(playerId);
+            fileHandlers.saveBackpackInventoryForTarget(playerId, pages);
+            unloadBackpack(playerId);
+        }
+
+        if (adminToTargetMap.containsKey(player)) {
+            Player target = adminToTargetMap.get(player);
+            UUID targetId = target.getUniqueId();
+
+            ArrayList<Inventory> targetPages = backpacks.get(targetId);
+            if (targetPages != null) {
+                fileHandlers.saveBackpackInventoryForTarget(targetId, targetPages);
+            }
+
+            adminToTargetMap.remove(player);
+
+            if (!target.isOnline()) {
+                unloadBackpack(targetId);
+            }
+        }
+    }
+
+    /* PERMISSION & STATE MANAGEMENT */
+    private void ensurePageCountMatchesPermissions(UUID playerId, @Nonnull ArrayList<Inventory> pages, boolean isAdmin) {
+        int allowedPages = getMaxPages(playerId);
+        int currentPages = pages.size();
+
+        if (currentPages > allowedPages) {
+            List<ItemStack> overflowItems = new ArrayList<>();
+
+            for (int pageIndex = currentPages - 1; pageIndex >= allowedPages; pageIndex--) {
+                if (pageIndex >= pages.size()) continue;
+
+                Inventory pageToRemove = pages.get(pageIndex);
+
+                for (ItemStack item : pageToRemove.getContents()) {
+                    if (item != null) {
+                        isNavigationItem(item);
+                    }
+                }
+
+                for (ItemStack item : pageToRemove.getContents()) {
+                    if (item != null && !isNavigationItem(item)) {
+                        boolean placed = false;
+
+                        for (int targetPageIndex = 0; targetPageIndex < allowedPages && targetPageIndex < pages.size(); targetPageIndex++) {
+                            Inventory targetPage = pages.get(targetPageIndex);
+                            int freeSlot = findFirstFreeNonNavSlot(targetPage, false);
+                            if (freeSlot != -1) {
+                                targetPage.setItem(freeSlot, item.clone());
+                                placed = true;
+                                break;
+                            }
+                        }
+
+                        if (!placed) {
+                            overflowItems.add(item.clone());
+                        }
+                    }
+                }
+            }
+
+            while (pages.size() > allowedPages) {
+                Inventory removedPage = pages.remove(pages.size() - 1);
+                unregisterBackpackInventory(removedPage);
+            }
+
+            if (!overflowItems.isEmpty()) {
+                fileHandlers.saveOverflowItems(playerId, overflowItems);
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null && player.isOnline()) {
+                    player.sendMessage(Messages.get("itemsOverflowed"));
+                }
+            } else {
+                try {
+                    Files.deleteIfExists(Paths.get(plugin.getDataFolder().getPath(), playerId + "-overflow-.yml.gz"));
+                } catch (IOException e) {
+                    plugin.getLogger().warning("Failed to delete overflow file for player: " + playerId);
+                }
+            }
+
+            refreshPagesAndNavigation(pages);
+            return;
+        }
+
+        if (currentPages < allowedPages) {
+            for (int i = currentPages; i < allowedPages; i++) {
+                Inventory page = Bukkit.createInventory(null, INVENTORY_SIZE, buildTitle(i + 1, allowedPages));
+                pages.add(page);
+                registerBackpackInventory(page);
+            }
+
+            List<ItemStack> overflowItems = fileHandlers.loadOverflowItems(playerId);
+            if (!overflowItems.isEmpty()) {
+                for (ItemStack item : new ArrayList<>(overflowItems)) {
+                    boolean placed = false;
+                    for (Inventory page : pages) {
+                        int slot = findFirstFreeNonNavSlot(page, false);
+                        if (slot != -1) {
+                            page.setItem(slot, item);
+                            overflowItems.remove(item);
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) break;
+                }
+
+                if (overflowItems.isEmpty()) {
+                    try {
+                        Files.deleteIfExists(Paths.get(plugin.getDataFolder().getPath(), playerId + "-overflow-.yml.gz"));
+                    } catch (IOException e) {
+                        plugin.getLogger().warning("Failed to delete overflow file for player: " + playerId);
+                    }
+                } else {
+                    fileHandlers.saveOverflowItems(playerId, overflowItems);
+                }
+
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null && player.isOnline()) {
+                    player.sendMessage(Messages.get("itemsRecovered"));
+                }
+            }
+        }
+
+        if (isAdmin) {
+            List<ItemStack> overflowItems = fileHandlers.loadOverflowItems(playerId);
+            while (!overflowItems.isEmpty()) {
+                Inventory overflowPage = Bukkit.createInventory(null, INVENTORY_SIZE, buildTitle(pages.size() + 1, "OVERFLOW"));
+                registerBackpackInventory(overflowPage);
+
+                for (ItemStack item : new ArrayList<>(overflowItems)) {
+                    int slot = findFirstFreeNonNavSlot(overflowPage, false);
+                    if (slot != -1) {
+                        overflowPage.setItem(slot, item);
+                        overflowItems.remove(item);
+                    } else break;
+                }
+
+                pages.add(overflowPage);
+            }
+        }
+
+        for (int i = 0; i < pages.size(); i++) {
+            Inventory oldPage = pages.get(i);
+            Inventory newPage = Bukkit.createInventory(null, INVENTORY_SIZE, buildTitle(i + 1, pages.size()));
+            newPage.setContents(oldPage.getContents());
+            pages.set(i, newPage);
+            registerBackpackInventory(newPage);
+        }
+
+        addNavigationItems(pages);
+    }
+
+    private int getMaxPages(UUID playerId) {
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null) {
+            for (int i = 999; i >= 1; i--) {
+                if (player.hasPermission("virtualstorages.use." + i)) {
+                    return i;
+                }
+            }
+        }
+        return 1;
+    }
+
+    private boolean isBackpackOpen(UUID targetId) {
+        Player target = Bukkit.getPlayer(targetId);
+        if (target != null && playersWithOpenBackpack.contains(target)) {
+            return true;
+        }
+
+        for (Map.Entry<Player, UUID> entry : adminViewers.entrySet()) {
+            if (entry.getValue().equals(targetId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /* INVENTORY MANAGEMENT */
+
+    private ArrayList<Inventory> getBackpackPages(UUID playerId) {
+        int maxPages = getMaxPages(playerId);
+        return backpacks.computeIfAbsent(playerId, k -> createNewBackpackPages(maxPages));
+    }
+
+    @Nonnull private ArrayList<Inventory> createNewBackpackPages(int maxPages) {
+        ArrayList<Inventory> pages = new ArrayList<>();
+        for (int i = 0; i < maxPages; i++) {
+            Inventory page = Bukkit.createInventory(null, INVENTORY_SIZE, buildTitle(i + 1, maxPages));
+            pages.add(page);
+            registerBackpackInventory(page);
+        }
+        addNavigationItems(pages);
+        return pages;
+    }
+
+    private int findFirstFreeNonNavSlot(@Nonnull Inventory inv, boolean allowSlot53IfOccupied) {
+        for (int slot = 0; slot < inv.getSize(); slot++) {
+            if (slot == NAV_PREV_SLOT) continue;
+
+            ItemStack it = inv.getItem(slot);
+
+            if (slot == NAV_NEXT_SLOT) {
+                if (isNavigationItem(it)) continue;
+
+                if (it == null) return slot;
+
+                if (allowSlot53IfOccupied) return slot;
+                continue;
+            }
+
+            if (it == null) return slot;
+        }
+        return -1;
+    }
+
+    private void refreshPagesAndNavigation(@Nonnull ArrayList<Inventory> pages) {
+        int totalPages = pages.size();
+        UUID playerId = getPlayerIdByInventory(pages);
+
+        for (int i = 0; i < totalPages; i++) {
+            Inventory page = pages.get(i);
+
+            if (i < totalPages - 1) {
+                handleSlotItem(pages, i, totalPages, playerId);
+            }
+
+            if (totalPages == 1) {
+                for (int navSlot : new int[]{NAV_PREV_SLOT, NAV_NEXT_SLOT}) {
+                    ItemStack navItem = page.getItem(navSlot);
+                    if (isNavigationItem(navItem)) page.setItem(navSlot, null);
+                }
+            } else {
+                if (i > 0) page.setItem(NAV_PREV_SLOT, createNavigationItem(Messages.get("prevArrow")));
+                if (i < totalPages - 1) page.setItem(NAV_NEXT_SLOT, createNavigationItem(Messages.get("nextArrow")));
+            }
+        }
+    }
+
+    private boolean isBackpackInventory(@Nonnull Inventory inventory) {
+        return backpackInventories.contains(inventory);
+    }
+
+    /* ITEM MOVEMENT & OVERFLOW */
+
+    private void handleSlotItem(@Nonnull List<Inventory> pages, int pageIndex, int totalPages, UUID playerId) {
+        if (pageIndex >= totalPages - 1) {
+            handleOverflowItem(playerId, pages.get(pageIndex).getItem(NAV_NEXT_SLOT));
+            pages.get(pageIndex).setItem(NAV_NEXT_SLOT, null);
+            return;
+        }
+
+        Inventory sourcePage = pages.get(pageIndex);
+        ItemStack item = sourcePage.getItem(NAV_NEXT_SLOT);
+        if (item == null || isNavigationItem(item)) return;
+
+        boolean placed = tryPlaceItemInPages(pages, pageIndex + 1, totalPages, item);
+
+        if (placed) {
+            sourcePage.setItem(NAV_NEXT_SLOT, null);
+        } else {
+            handleOverflowItem(playerId, item);
+            sourcePage.setItem(NAV_NEXT_SLOT, null);
+        }
+    }
+
+    private void handleSlotItem(List<Inventory> pages, int pageIndex, int totalPages, UUID playerId, ItemStack item) {
+        if (pageIndex >= totalPages - 1) {
+            handleOverflowItem(playerId, item);
+            return;
+        }
+
+        if (item == null || isNavigationItem(item)) return;
+
+        boolean placed = tryPlaceItemInPages(pages, pageIndex + 1, totalPages, item);
+
+        if (!placed) {
+            handleOverflowItem(playerId, item);
+        }
+    }
+
+    private boolean tryPlaceItemInPages(List<Inventory> pages, int startPage, int totalPages, ItemStack item) {
+        int maxPagesToCheck = Math.min(totalPages, startPage + 10);
+
+        for (int j = startPage; j < maxPagesToCheck; j++) {
+            if (j >= pages.size()) {
+                plugin.getLogger().warning("Page index " + j + " out of bounds during item placement");
+                break;
+            }
+
+            int free = findFirstFreeNonNavSlot(pages.get(j), true);
+            if (free != -1) {
+                pages.get(j).setItem(free, item);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void handleOverflowItem(UUID playerId, ItemStack item) {
+        if (item == null || isNavigationItem(item)) return;
+
+        if (playerId != null) {
+            List<ItemStack> overflow = new ArrayList<>(fileHandlers.loadOverflowItems(playerId));
+            overflow.add(item);
+            fileHandlers.saveOverflowItems(playerId, overflow);
+
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                player.sendMessage(Messages.get("itemOverflowed"));
+            }
+        }
+    }
+
+    /* NAVIGATION & UI */
+
+    private void addNavigationItems(@Nonnull List<Inventory> pages) {
+        int totalPages = pages.size();
+        UUID playerId = getPlayerIdByInventory(pages);
+
+        for (int i = 0; i < totalPages; i++) {
+            Inventory page = pages.get(i);
+
+            ItemStack cur45 = page.getItem(NAV_PREV_SLOT);
+            if (i > 0) {
+                if (cur45 == null || isNavigationItem(cur45)) {
+                    page.setItem(NAV_PREV_SLOT, createNavigationItem(Messages.get("prevArrow")));
+                }
+            } else {
+                if (isNavigationItem(cur45)) page.setItem(NAV_PREV_SLOT, null);
+            }
+
+            ItemStack cur53 = page.getItem(NAV_NEXT_SLOT);
+            if (i < totalPages - 1) {
+                if (cur53 == null || isNavigationItem(cur53)) {
+                    page.setItem(NAV_NEXT_SLOT, createNavigationItem(Messages.get("nextArrow")));
+                } else {
+                    ItemStack toMove = cur53.clone();
+                    page.setItem(NAV_NEXT_SLOT, null);
+                    handleSlotItem(pages, i, totalPages, playerId, toMove);
+                    page.setItem(NAV_NEXT_SLOT, createNavigationItem(Messages.get("nextArrow")));
+                }
+            } else {
+                if (isNavigationItem(cur53)) page.setItem(NAV_NEXT_SLOT, null);
+            }
+        }
+    }
+
+    @Nonnull private ItemStack createNavigationItem(String displayName) {
+        ItemStack item = new ItemStack(Material.ARROW);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(displayName);
+            meta.getPersistentDataContainer().set(NAV_KEY, PersistentDataType.BYTE, (byte) 1);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private void changePage(UUID targetId, int direction, Player viewer) {
+        ArrayList<Inventory> pages = getBackpackPages(targetId);
+        int currentPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
+        int newPageIndex = currentPageIndex + direction;
+
+        boolean viewerIsAdminViewingTarget = adminToTargetMap.containsKey(viewer) && adminToTargetMap.get(viewer).getUniqueId().equals(targetId);
+
+        int allowedMax;
+        if (viewerIsAdminViewingTarget) {
+            allowedMax = pages.size();
+        } else {
+            allowedMax = getMaxPages(targetId);
+            if (allowedMax <= 0) allowedMax = 1;
+        }
+
+        if (newPageIndex >= 0 && newPageIndex < allowedMax) {
+            currentPageIndexMap.put(targetId, newPageIndex);
+        }
+    }
+
+    /* UTILITY & HELPERS */
+
+    private String buildTitle(int page, Object maxPages) {
+        return Messages.get("title", "%page%", String.valueOf(page), "%maxpages%", String.valueOf(maxPages));
+    }
+
+    private boolean isNavigationItem(ItemStack item) {
+        if (item == null || item.getType() != Material.ARROW) return false;
+        ItemMeta meta = item.getItemMeta();
+        return meta != null &&
+                meta.getPersistentDataContainer().has(NAV_KEY, PersistentDataType.BYTE);
+    }
+
+    @Nullable private UUID getPlayerIdByInventory(List<Inventory> pages) {
+        for (UUID id : backpacks.keySet()) {
+            if (backpacks.get(id) == pages) return id;
+        }
+        return null;
+    }
+
+    /* MEMORY MANAGEMENT */
+
+    private void markBackpackOpen(Player player) {
+        playersWithOpenBackpack.add(player);
+    }
+
+    private void markBackpackClosed(Player player) {
+        playersWithOpenBackpack.remove(player);
+        adminViewers.remove(player);
+    }
+
+    private void markAdminViewing(Player admin, UUID targetId) {
+        adminViewers.put(admin, targetId);
+    }
+
+    private void registerBackpackInventory(@Nonnull Inventory inventory) {
+        backpackInventories.add(inventory);
+    }
+
+    private void unregisterBackpackInventory(@Nonnull Inventory inventory) {
+        backpackInventories.remove(inventory);
+    }
+
+    private void unloadBackpack(UUID playerId) {
+        currentPageIndexMap.remove(playerId);
+        ArrayList<Inventory> pages = backpacks.remove(playerId);
+
+        if (pages != null) {
+            for (Inventory inv : pages) {
+                unregisterBackpackInventory(inv);
+            }
+        }
+
+        adminViewers.entrySet().removeIf(entry ->
+                entry.getValue().equals(playerId)
+        );
+
+        playersWithOpenBackpack.removeIf(player ->
+                player.getUniqueId().equals(playerId)
+        );
+    }
+
+    public void unloadAllBackpacks() {
+        Set<UUID> playerIds = new HashSet<>(backpacks.keySet());
+
+        for (UUID playerId : playerIds) {
+            try {
+                ArrayList<Inventory> pages = backpacks.get(playerId);
+                if (pages != null) {
+                    fileHandlers.saveBackpackInventoryForTarget(playerId, pages);
+                }
+                unloadBackpack(playerId);
+            } catch (Exception e) {
+                plugin.getLogger().warning("Failed to unload backpack for player " + playerId + ": " + e.getMessage());
+            }
+        }
+
+        adminToTargetMap.clear();
+    }
+
+    /* BACKUP & MAINTENANCE */
+
+    public void createBackup() {
+        File dataFolder = plugin.getDataFolder();
+        File backupFolder = new File(dataFolder, "backup");
+        if (!backupFolder.exists()) {
+            if (!backupFolder.mkdirs()) {
+                plugin.getLogger().log(Level.SEVERE, "Error creating backup directory: " + backupFolder.getAbsolutePath());
+                return;
+            }
+        }
+
+        File[] files = dataFolder.listFiles((dir, name) -> name.endsWith(".yml") || name.endsWith(".yml.gz"));
+        if (files != null) {
+            for (File file : files) {
+                File backupFile = new File(backupFolder, file.getName());
+                try {
+                    Files.copy(file.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    plugin.getLogger().log(Level.SEVERE, "Error creating backup for file: " + file.getName(), e);
+                }
+            }
+        }
     }
 
     public void saveAllBackpacks() {
@@ -557,44 +844,4 @@ public class VirtualBackpack implements Listener {
         }
     }
 
-    private boolean isBackpackOpen(UUID targetId) {
-        List<String> validTitles = new ArrayList<>();
-        for (Inventory inv : getBackpackPages(targetId)) {
-            validTitles.add(inv.getViewers().isEmpty() ? "" : inv.getViewers().get(0).getOpenInventory().getTitle());
-            if (validTitles.get(validTitles.size() - 1).isEmpty()) {
-                int idx = getBackpackPages(targetId).indexOf(inv);
-                validTitles.set(validTitles.size() - 1,
-                        buildTitle(idx + 1, getBackpackPages(targetId).size()));
-            }
-        }
-
-        Player target = Bukkit.getPlayer(targetId);
-        if (target != null) {
-            String open = target.getOpenInventory().getTitle();
-            if (validTitles.contains(open)) return true;
-        }
-        for (Player admin : adminToTargetMap.keySet()) {
-            if (adminToTargetMap.get(admin).getUniqueId().equals(targetId)) {
-                String open = admin.getOpenInventory().getTitle();
-                if (validTitles.contains(open)) return true;
-            }
-        }
-        return false;
-    }
-
-    private String buildTitle(int page, Object maxPages) {
-        return Messages.get("title", "%page%", String.valueOf(page), "%maxpages%", String.valueOf(maxPages));
-    }
-
-    private void registerBackpackInventory(@Nonnull Inventory inventory) {
-        backpackInventories.add(inventory);
-    }
-
-    private boolean isBackpackInventory(@Nonnull Inventory inventory) {
-        return backpackInventories.contains(inventory);
-    }
-
-    private void unregisterBackpackInventory(@Nonnull Inventory inventory) {
-        backpackInventories.remove(inventory);
-    }
 }
