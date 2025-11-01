@@ -2,6 +2,9 @@
 
 VirtualStorages is a Minecraft Plugin designed to enhance storage capabilities for players on servers. It introduces virtual backpacks, allowing players to store items in a virtual compartment that is accessible from anywhere in the game.
 
+[<img width="187" height="64" alt="modrinth_64h" src="https://github.com/user-attachments/assets/893d4e6e-3a82-4746-993f-f4281281932a" />](https://modrinth.com/plugin/virtualstorages-backpacks)
+
+
 ---
 
 **Key Features:**
