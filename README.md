@@ -1,56 +1,70 @@
 ### VirtualStorages Plugin
 
-**Description:**  
-VirtualStorages is a Minecraft Plugin designed to increase storage capabilities for players on servers. It introduces virtual backpacks, allowing players to store items inside a virtual compartment that is accessible from everywhere and anywhere.
+VirtualStorages is a Minecraft Plugin designed to enhance storage capabilities for players on servers. It introduces virtual backpacks, allowing players to store items in a virtual compartment that is accessible from anywhere in the game.
 
 ---
 
-**Features:**
+**Key Features:**
 
-1. **Virtual Backpacks:** Players can access additional storage slots inside a virtual backpack.
-2. **Permission:** Permissions to control who can use virtual backpacks and to manipulate the number of backpacks a player can have.
-3. **Admin Control:** Admins can inspect and manipulate the contents of every backpack created by players using `/backpackview <player>`.
-4. **Data Persistence:** The data is stored in file located inside the Data Folder of the plugin.
+- **Virtual Backpacks:**  
+  - Players can access additional storage slots inside a virtual backpack.
+  - Backpacks are accessible from anywhere in the game.
+
+- **Customizable:**  
+  - Allow via permissions to set the numbers a player can have or who can use virtual backpacks.
+  - Modify titles and other aspects of the backpacks.
+
+- **Admin Control:**  
+  - Admins can inspect and manipulate the contents of any player's backpack using `/backpackview {player}`.
+  - Backpack data is stored in files located in the plugin's Data Folder.
+
 ---
 
 **Installation:**
 
-1. Download the latest version of VirtualStorages from the releases page.
-2. Place the plugin JAR file in your server's `plugins` folder.
-3. Start or restart your Minecraft server.
+1. **Download:**  
+   - Get the latest version of VirtualStorages from the [releases page](https://github.com/852DuartePls/UNSTABLE-Spigot-VirtualStorages/releases).
+   
+2. **Place Plugin:**  
+   - Put the plugin JAR file in your server's `plugins` folder.
+   
+3. **Restart Server:**  
+   - Start or restart your Minecraft server to load the plugin.
 
 ---
 
 **Commands:**
 
-- **/backpack:** Opens the virtual backpack for players who have the appropriate permission.
-- **/backpackview <player>:** Allows the player to visualize and interact with another player's backpack.
-- **/vsreload:** Reloads messages from the config.yml file for VirtualStorages. Requires admin privileges.
+- **/backpack:** (<ins>alias: `/bp`</ins>) 
+  - Opens the virtual backpack for players with the appropriate permission.
+
+- **/backpackview {player}** (<ins>alias: `/bpview {player}`</ins>)  
+  - Allows admins to view and interact with another player's backpack.
+
+- **/vsreload:**  
+  - Reloads messages from the `config.yml` file. Requires admin permission.
 
 ---
 
 **Permissions:**
 
-- **virtualstorages.use.#:** Allows access to virtual backpacks, where "#" is the backpack number (1-999).
-- **virtualstorages.admin:** Allows admins to access the `/vsreload` and `/backpackview` commands.
+- **virtualstorages.use.#:**  
+  - Allows access to virtual backpacks, where "#" is the backpack number allowed for the player to have (1-999).
 
-> [!IMPORTANT]
-> You need a permissions plugin to do this .
----
+- **virtualstorages.admin:**  
+  - Grants access to `/vsreload` and `/backpackview` commands.
 
-**License:**  
-VirtualStorages is licensed under the GNU General Public License v3.0. See the `LICENSE` file for details.
+> [!IMPORTANT] 
+> A permissions plugin is required to manage these permissions effectively.
 
 ---
 
 **Feedback:**  
-Your feedback is valuable! Feel free to submit bug reports, feature requests, or general feedback on the GitHub repository's issues section.
+Your feedback is valuable! Feel free to submit bug reports, feature requests, or general feedback on the [Issues section](https://github.com/852DuartePls/UNSTABLE-Spigot-VirtualStorages/issues).
 
 ---
 
 #### **TODO:**
 - [x] Add a way to see other players' backpacks in-game
-- [x] Make `/vsreload` no longer necessary
+- [x] Make `/vsreload` no longer necessary for updating allowed pages for players
 - [ ] Add option for Database storage
-
---- 
