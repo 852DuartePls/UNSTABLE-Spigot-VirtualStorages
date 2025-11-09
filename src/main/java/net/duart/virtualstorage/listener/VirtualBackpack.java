@@ -435,6 +435,7 @@ public class VirtualBackpack implements Listener {
                     boolean placed = false;
                     for (Inventory page : pages) {
                         int slot = findFirstFreeNonNavSlot(page, false);
+                        if (slot == NAV_NEXT_SLOT) continue;
                         if (slot != -1) {
                             page.setItem(slot, item);
                             overflowItems.remove(item);
@@ -470,6 +471,7 @@ public class VirtualBackpack implements Listener {
 
                 for (ItemStack item : new ArrayList<>(overflowItems)) {
                     int slot = findFirstFreeNonNavSlot(overflowPage, false);
+                    if (slot == NAV_NEXT_SLOT) continue;
                     if (slot != -1) {
                         overflowPage.setItem(slot, item);
                         overflowItems.remove(item);
