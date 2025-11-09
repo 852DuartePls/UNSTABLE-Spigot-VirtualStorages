@@ -37,8 +37,8 @@ public class VirtualBackpack implements Listener {
     private final ConcurrentHashMap<UUID, ArrayList<Inventory>> backpacks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Player, Player> adminToTargetMap = new ConcurrentHashMap<>();
 
-    private final Set<Player> playersWithOpenBackpack = new HashSet<>();
-    private final Map<Player, UUID> adminViewers = new HashMap<>();
+    private final Set<UUID> playersWithOpenBackpack = new HashSet<>();
+    private final Map<UUID, UUID> adminViewers = new HashMap<>();
     private final Set<Inventory> backpackInventories = new HashSet<>();
 
     private final FileHandlers fileHandlers;
@@ -207,7 +207,9 @@ public class VirtualBackpack implements Listener {
         }
 
         UUID targetId = playerId;
-        if (adminToTargetMap.containsKey(player)) {
+        UUID mapped = adminViewers.get(player.getUniqueId());
+        if (mapped != null) targetId = mapped;
+        else if (adminToTargetMap.containsKey(player)) {
             targetId = adminToTargetMap.get(player).getUniqueId();
         }
 
@@ -506,18 +508,9 @@ public class VirtualBackpack implements Listener {
     }
 
     private boolean isBackpackOpen(UUID targetId) {
-        Player target = Bukkit.getPlayer(targetId);
-        if (target != null && playersWithOpenBackpack.contains(target)) {
-            return true;
-        }
+        if (playersWithOpenBackpack.contains(targetId)) return true;
 
-        for (Map.Entry<Player, UUID> entry : adminViewers.entrySet()) {
-            if (entry.getValue().equals(targetId)) {
-                return true;
-            }
-        }
-
-        return false;
+        return adminViewers.containsValue(targetId);
     }
 
     /* INVENTORY MANAGEMENT */
@@ -702,12 +695,16 @@ public class VirtualBackpack implements Listener {
         return item;
     }
 
-    private void changePage(UUID targetId, int direction, Player viewer) {
+    private void changePage(UUID targetId, int direction,@Nonnull Player viewer) {
         ArrayList<Inventory> pages = getBackpackPages(targetId);
         int currentPageIndex = currentPageIndexMap.getOrDefault(targetId, 0);
         int newPageIndex = currentPageIndex + direction;
 
-        boolean viewerIsAdminViewingTarget = adminToTargetMap.containsKey(viewer) && adminToTargetMap.get(viewer).getUniqueId().equals(targetId);
+        UUID mapped = adminViewers.get(viewer.getUniqueId());
+        boolean viewerIsAdminViewingTarget =
+                (mapped != null && mapped.equals(targetId)) ||
+                        (adminToTargetMap.containsKey(viewer) &&
+                                adminToTargetMap.get(viewer).getUniqueId().equals(targetId));
 
         int allowedMax;
         if (viewerIsAdminViewingTarget) {
@@ -745,16 +742,16 @@ public class VirtualBackpack implements Listener {
     /* MEMORY MANAGEMENT */
 
     private void markBackpackOpen(Player player) {
-        playersWithOpenBackpack.add(player);
+        playersWithOpenBackpack.add(player.getUniqueId());
     }
 
     private void markBackpackClosed(Player player) {
-        playersWithOpenBackpack.remove(player);
-        adminViewers.remove(player);
+        playersWithOpenBackpack.remove(player.getUniqueId());
+        adminViewers.remove(player.getUniqueId());
     }
 
     private void markAdminViewing(Player admin, UUID targetId) {
-        adminViewers.put(admin, targetId);
+        adminViewers.put(admin.getUniqueId(), targetId);
     }
 
     private void registerBackpackInventory(@Nonnull Inventory inventory) {
@@ -779,9 +776,7 @@ public class VirtualBackpack implements Listener {
                 entry.getValue().equals(playerId)
         );
 
-        playersWithOpenBackpack.removeIf(player ->
-                player.getUniqueId().equals(playerId)
-        );
+        playersWithOpenBackpack.remove(playerId);
     }
 
     public void unloadAllBackpacks() {
