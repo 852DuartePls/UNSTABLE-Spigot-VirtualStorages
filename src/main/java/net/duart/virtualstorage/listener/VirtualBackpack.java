@@ -107,7 +107,7 @@ public class VirtualBackpack implements Listener {
                     registerBackpackInventory(page);
                 }
             }
-
+            rebuildPageTitles(pages);
             ensurePageCountMatchesPermissions(playerId, pages, false);
             refreshPagesAndNavigation(pages);
 
@@ -184,6 +184,7 @@ public class VirtualBackpack implements Listener {
                 }
             }
 
+            rebuildPageTitles(pages);
             ensurePageCountMatchesPermissions(targetId, pages, true);
             refreshPagesAndNavigation(pages);
 
@@ -737,6 +738,17 @@ public class VirtualBackpack implements Listener {
             if (backpacks.get(id) == pages) return id;
         }
         return null;
+    }
+
+    private void rebuildPageTitles(@Nonnull List<Inventory> pages) {
+        int totalPages = pages.size();
+        for (int i = 0; i < totalPages; i++) {
+            Inventory old = pages.get(i);
+            Inventory rebuilt = Bukkit.createInventory(null, INVENTORY_SIZE, buildTitle(i + 1, totalPages));
+            rebuilt.setContents(old.getContents());
+            pages.set(i, rebuilt);
+            registerBackpackInventory(rebuilt);
+        }
     }
 
     /* MEMORY MANAGEMENT */
