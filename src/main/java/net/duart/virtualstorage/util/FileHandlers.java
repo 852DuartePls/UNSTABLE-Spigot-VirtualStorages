@@ -17,6 +17,7 @@ import org.bukkit.util.io.BukkitObjectOutputStream;
 import javax.annotation.Nonnull;
 import java.io.*;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -128,12 +129,22 @@ public class FileHandlers {
         try {
             fileLock.lock();
             YamlConfiguration playerConfig;
+
             if (file.getName().endsWith(".yml.gz")) {
                 try (FileInputStream fileInputStream = new FileInputStream(file);
                      GZIPInputStream gzipInputStream = new GZIPInputStream(fileInputStream);
                      InputStreamReader inputStreamReader = new InputStreamReader(gzipInputStream);
                      BufferedReader reader = new BufferedReader(inputStreamReader)) {
                     playerConfig = YamlConfiguration.loadConfiguration(reader);
+                } catch (java.util.zip.ZipException e) {
+                    plugin.getLogger().warning("Corrupted GZIP file detected for player " + playerId + ", attempting to read as plain YAML");
+
+                    try {
+                        playerConfig = YamlConfiguration.loadConfiguration(file);
+                    } catch (Exception e2) {
+                        plugin.getLogger().log(Level.SEVERE, "Failed to read file even as plain YAML for player " + playerId, e2);
+                        return new BackpackData(pagesData, storedPageCount);
+                    }
                 }
             } else {
                 playerConfig = YamlConfiguration.loadConfiguration(file);
@@ -255,5 +266,56 @@ public class FileHandlers {
         ItemMeta meta = item.getItemMeta();
         return meta == null ||
                 !meta.getPersistentDataContainer().has(NAV_KEY, PersistentDataType.BYTE);
+    }
+
+    public void createBackup() {
+        File dataFolder = plugin.getDataFolder();
+        File backupFolder = new File(dataFolder, "backup");
+        if (!backupFolder.exists()) {
+            if (!backupFolder.mkdirs()) {
+                plugin.getLogger().log(Level.SEVERE, "Error creating backup directory");
+                return;
+            }
+        }
+
+        File[] files = dataFolder.listFiles((dir, name) ->
+                name.endsWith(".yml") || name.endsWith(".yml.gz"));
+
+        if (files != null) {
+            for (File file : files) {
+                try {
+                    fileLock.lock();
+
+                    if (file.getName().endsWith(".yml.gz")) {
+                        if (!isValidGZIPFile(file)) {
+                            plugin.getLogger().warning("Skipping corrupted file: " + file.getName());
+                            continue;
+                        }
+                    }
+
+                    File backupFile = new File(backupFolder, file.getName());
+                    Files.copy(file.toPath(), backupFile.toPath(),
+                            StandardCopyOption.REPLACE_EXISTING);
+
+                } catch (IOException e) {
+                    plugin.getLogger().log(Level.SEVERE, "Error backing up: " + file.getName(), e);
+                } finally {
+                    fileLock.unlock();
+                }
+            }
+        }
+    }
+
+    private boolean isValidGZIPFile(File file) {
+        try (FileInputStream fis = new FileInputStream(file);
+             GZIPInputStream gis = new GZIPInputStream(fis)) {
+            byte[] buffer = new byte[1024];
+            while (gis.read(buffer) != -1) {
+                // Just reading to validate
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

@@ -23,7 +23,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -812,26 +811,7 @@ public class VirtualBackpack implements Listener {
     /* BACKUP & MAINTENANCE */
 
     public void createBackup() {
-        File dataFolder = plugin.getDataFolder();
-        File backupFolder = new File(dataFolder, "backup");
-        if (!backupFolder.exists()) {
-            if (!backupFolder.mkdirs()) {
-                plugin.getLogger().log(Level.SEVERE, "Error creating backup directory: " + backupFolder.getAbsolutePath());
-                return;
-            }
-        }
-
-        File[] files = dataFolder.listFiles((dir, name) -> name.endsWith(".yml") || name.endsWith(".yml.gz"));
-        if (files != null) {
-            for (File file : files) {
-                File backupFile = new File(backupFolder, file.getName());
-                try {
-                    Files.copy(file.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                } catch (IOException e) {
-                    plugin.getLogger().log(Level.SEVERE, "Error creating backup for file: " + file.getName(), e);
-                }
-            }
-        }
+        fileHandlers.createBackup();
     }
 
     public void saveAllBackpacks() {
